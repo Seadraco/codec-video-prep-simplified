@@ -16,10 +16,9 @@ class PreinferConfig:
     max_pixels: int = 153664
     min_group_frames: int = 8
     max_group_frames: int = 64
-    thread_type: str = "frame"
+    thread_type: str = "auto"
     thread_count: int = 16
-    bitcost_grid: str = "mb"
+    bitcost_grid: str = "adaptive"
     canvas_format: str = "jpg"
     avoid_keyframes: bool = True
     readiness_sum_threshold: float = 0.0
-

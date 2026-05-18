@@ -72,8 +72,9 @@ def cv_reader_fetch_bitcost(
     """Fetch bit-cost maps aligned with frame_ids using cv_reader_fast."""
     frame_ids = [int(x) for x in frame_ids]
     grid = str(bitcost_grid).lower().strip()
+    codec_name = ffprobe_video_codec_name(str(video_path))
     if grid in {"adaptive", "auto"}:
-        grid = "sub"
+        grid = "ctu" if codec_name == "hevc" else "mb"
     wanted_keys = {
         "sub": {"sub_mb_bit_cost"},
         "mb": {"mb_bit_cost"},
@@ -86,6 +87,10 @@ def cv_reader_fetch_bitcost(
     # avctx->frame_number is not stable enough under frame threading.
     thread_count = int(os.environ.get("CV_READER_FAST_THREAD_COUNT", "16"))
     thread_type = os.environ.get("CV_READER_FAST_THREAD_TYPE", "frame")
+    if codec_name == "hevc" and "CV_READER_FAST_THREAD_TYPE" not in os.environ:
+        # The patched HEVC bitcost path stores CTU maps correctly under slice
+        # threading; frame threading can crash inside FFmpeg's HEVC decoder.
+        thread_type = "slice"
     all_frames = _read_video_fast_selected(
         str(video_path),
         frame_ids,

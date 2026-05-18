@@ -19,6 +19,7 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--max_pixels", type=int, default=153664)
     ap.add_argument("--min_group_frames", type=int, default=8)
     ap.add_argument("--max_group_frames", type=int, default=64)
+    ap.add_argument("--bitcost_grid", default="adaptive", choices=["sub", "mb", "ctu", "adaptive"])
     return ap
 
 
@@ -30,4 +31,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

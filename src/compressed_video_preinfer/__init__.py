@@ -1,7 +1,19 @@
 """Optimized compressed-video pre-inference package."""
 
-from .api import PreinferResult, run_preinfer
 from .config import PreinferConfig
 
 __all__ = ["PreinferConfig", "PreinferResult", "run_preinfer"]
 
+
+def run_preinfer(*args, **kwargs):
+    from .api import run_preinfer as _run_preinfer
+
+    return _run_preinfer(*args, **kwargs)
+
+
+def __getattr__(name):
+    if name == "PreinferResult":
+        from .api import PreinferResult
+
+        return PreinferResult
+    raise AttributeError(name)

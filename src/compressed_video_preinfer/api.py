@@ -27,7 +27,11 @@ class PreinferResult:
 
 
 def _configure_native_threads(config: PreinferConfig) -> None:
-    os.environ["CV_READER_FAST_THREAD_TYPE"] = str(config.thread_type)
+    thread_type = str(config.thread_type).lower().strip()
+    if thread_type and thread_type != "auto":
+        os.environ["CV_READER_FAST_THREAD_TYPE"] = thread_type
+    else:
+        os.environ.pop("CV_READER_FAST_THREAD_TYPE", None)
     os.environ["CV_READER_FAST_THREAD_COUNT"] = str(int(config.thread_count))
 
 
@@ -41,8 +45,9 @@ def run_preinfer(
     max_pixels: int = 153664,
     min_group_frames: int = 8,
     max_group_frames: int = 64,
+    bitcost_grid: str = "adaptive",
 ) -> PreinferResult:
-    """Run the narrow optimized H.264 bitcost readiness pre-infer path."""
+    """Run the optimized H.264/HEVC bitcost readiness pre-infer path."""
     config = PreinferConfig(
         video=video,
         out_dir=out_dir,
@@ -53,6 +58,7 @@ def run_preinfer(
         max_pixels=max_pixels,
         min_group_frames=min_group_frames,
         max_group_frames=max_group_frames,
+        bitcost_grid=bitcost_grid,
     )
     return run_preinfer_config(config)
 
@@ -95,4 +101,3 @@ def run_preinfer_config(config: PreinferConfig) -> PreinferResult:
         canvas_files=list(result.canvas_files),
         summary=summary,
     )
-

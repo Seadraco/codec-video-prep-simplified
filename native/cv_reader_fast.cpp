@@ -4,7 +4,7 @@
  * Stripped-down version of cv_reader that does only the essentials:
  *  - open / find stream / init decoder
  *  - decode loop with skip_loop_filter + skip_idct
- *  - optional H264 bitcost export from frame->opaque_ref
+ *  - optional H.264/HEVC bitcost export from frame->opaque_ref
  *  - returns a lightweight list of dicts with frame metadata
  *
  * Link against the patched FFmpeg static libs with -Wl,-Bsymbolic.
@@ -33,6 +33,8 @@ extern "C" {
 /* ------------------------------------------------------------------ */
 #define H264_MB_BIT_COST_MAP_MAGIC   0x4D424354U   /* MKBETAG('M','B','C','T') */
 #define H264_MB_BIT_COST_MAP_VERSION 2
+#define HEVC_CTU_BIT_COST_MAP_MAGIC  0x48435455U   /* MKBETAG('H','C','T','U') */
+#define HEVC_CTU_BIT_COST_MAP_VERSION 2
 #define CVR_TARGET_BITCOST_MAGIC     0x43565254U   /* MKBETAG('C','V','R','T') */
 
 #pragma pack(push, 1)
@@ -46,6 +48,18 @@ typedef struct H264MbBitCostMap {
     int32_t  sub_height;
     int32_t  sub_stride;
 } H264MbBitCostMap;
+
+typedef struct HevcCtuBitCostMap {
+    uint32_t magic;
+    int32_t  version;
+    int32_t  ctb_width;
+    int32_t  ctb_height;
+    int32_t  ctb_stride;
+    int32_t  log2_ctb_size;
+    int32_t  sub_width;
+    int32_t  sub_height;
+    int32_t  sub_stride;
+} HevcCtuBitCostMap;
 #pragma pack(pop)
 
 typedef struct CvrTargetBitcostCtx {
@@ -64,6 +78,14 @@ static const float *h264_sub_costs_ptr(const H264MbBitCostMap *map) {
     return (const float *)(h264_mb_costs_ptr(map) + (size_t)map->mb_stride * map->mb_height);
 }
 
+static const int32_t *hevc_ctu_costs_ptr(const HevcCtuBitCostMap *map) {
+    return (const int32_t *)((const uint8_t *)map + sizeof(HevcCtuBitCostMap));
+}
+
+static const float *hevc_sub_costs_ptr(const HevcCtuBitCostMap *map) {
+    return (const float *)(hevc_ctu_costs_ptr(map) + (size_t)map->ctb_stride * map->ctb_height);
+}
+
 static int cvr_bitcost_diag_enabled_cpp()
 {
     const char *v = getenv("CVR_BITCOST_DIAG");
@@ -78,26 +100,47 @@ static int cvr_bitcost_map_is_valid(AVFrame *frame)
         return 0;
     const H264MbBitCostMap *map = (const H264MbBitCostMap *)frame->opaque_ref->data;
     if (map->magic != H264_MB_BIT_COST_MAP_MAGIC ||
-        map->version != H264_MB_BIT_COST_MAP_VERSION)
-        return 0;
-    size_t mb_count = (size_t)map->mb_stride * map->mb_height;
-    size_t sub_count = (size_t)map->sub_stride * map->sub_height;
-    size_t expect_sz = sizeof(H264MbBitCostMap) +
-                       mb_count * sizeof(int32_t) +
-                       sub_count * sizeof(float);
-    return (size_t)frame->opaque_ref->size >= expect_sz;
+        map->version != H264_MB_BIT_COST_MAP_VERSION) {
+        const HevcCtuBitCostMap *hevc_map = (const HevcCtuBitCostMap *)frame->opaque_ref->data;
+        if (hevc_map->magic != HEVC_CTU_BIT_COST_MAP_MAGIC ||
+            hevc_map->version != HEVC_CTU_BIT_COST_MAP_VERSION)
+            return 0;
+        size_t ctu_count = (size_t)hevc_map->ctb_stride * hevc_map->ctb_height;
+        size_t sub_count = (size_t)hevc_map->sub_stride * hevc_map->sub_height;
+        size_t expect_sz = sizeof(HevcCtuBitCostMap) +
+                           ctu_count * sizeof(int32_t) +
+                           sub_count * sizeof(float);
+        return (size_t)frame->opaque_ref->size >= expect_sz;
+    } else {
+        size_t mb_count = (size_t)map->mb_stride * map->mb_height;
+        size_t sub_count = (size_t)map->sub_stride * map->sub_height;
+        size_t expect_sz = sizeof(H264MbBitCostMap) +
+                           mb_count * sizeof(int32_t) +
+                           sub_count * sizeof(float);
+        return (size_t)frame->opaque_ref->size >= expect_sz;
+    }
 }
 
 static int cvr_bitcost_map_has_nonzero_mb(AVFrame *frame)
 {
     if (!cvr_bitcost_map_is_valid(frame))
         return 0;
-    const H264MbBitCostMap *map = (const H264MbBitCostMap *)frame->opaque_ref->data;
-    const int32_t *mb = h264_mb_costs_ptr(map);
-    size_t mb_count = (size_t)map->mb_stride * map->mb_height;
-    for (size_t i = 0; i < mb_count; ++i) {
-        if (mb[i] != 0)
-            return 1;
+    const H264MbBitCostMap *h264_map = (const H264MbBitCostMap *)frame->opaque_ref->data;
+    if (h264_map->magic == H264_MB_BIT_COST_MAP_MAGIC) {
+        const int32_t *mb = h264_mb_costs_ptr(h264_map);
+        size_t mb_count = (size_t)h264_map->mb_stride * h264_map->mb_height;
+        for (size_t i = 0; i < mb_count; ++i) {
+            if (mb[i] != 0)
+                return 1;
+        }
+    } else {
+        const HevcCtuBitCostMap *hevc_map = (const HevcCtuBitCostMap *)frame->opaque_ref->data;
+        const int32_t *ctu = hevc_ctu_costs_ptr(hevc_map);
+        size_t ctu_count = (size_t)hevc_map->ctb_stride * hevc_map->ctb_height;
+        for (size_t i = 0; i < ctu_count; ++i) {
+            if (ctu[i] != 0)
+                return 1;
+        }
     }
     return 0;
 }
@@ -181,6 +224,83 @@ extract_h264_bitcost(AVFrame *frame)
     return dict;
 }
 
+static PyObject *
+extract_hevc_bitcost(AVFrame *frame)
+{
+    if (!frame->opaque_ref || !frame->opaque_ref->data)
+        Py_RETURN_NONE;
+
+    if ((size_t)frame->opaque_ref->size < sizeof(HevcCtuBitCostMap))
+        Py_RETURN_NONE;
+
+    const HevcCtuBitCostMap *map = (const HevcCtuBitCostMap *)frame->opaque_ref->data;
+
+    if (map->magic != HEVC_CTU_BIT_COST_MAP_MAGIC ||
+        map->version != HEVC_CTU_BIT_COST_MAP_VERSION)
+        Py_RETURN_NONE;
+
+    size_t ctu_count = (size_t)map->ctb_stride * map->ctb_height;
+    size_t sub_count = (size_t)map->sub_stride * map->sub_height;
+    size_t expect_sz = sizeof(HevcCtuBitCostMap)
+                        + ctu_count * sizeof(int32_t)
+                        + sub_count * sizeof(float);
+
+    if ((size_t)frame->opaque_ref->size < expect_sz)
+        Py_RETURN_NONE;
+
+    const int32_t *ctu_costs = hevc_ctu_costs_ptr(map);
+    const float *sub_costs = hevc_sub_costs_ptr(map);
+
+    npy_intp ctu_dims[2] = {map->ctb_height, map->ctb_stride};
+    npy_intp sub_dims[2] = {map->sub_height, map->sub_stride};
+
+    PyObject *ctu_arr = make_numpy_copy(2, ctu_dims, NPY_INT32,
+                                        ctu_costs, ctu_count * sizeof(int32_t));
+    PyObject *sub_arr = make_numpy_copy(2, sub_dims, NPY_FLOAT32,
+                                        sub_costs, sub_count * sizeof(float));
+    if (!ctu_arr || !sub_arr) {
+        Py_XDECREF(ctu_arr);
+        Py_XDECREF(sub_arr);
+        return nullptr;
+    }
+
+    PyObject *dict = PyDict_New();
+    if (!dict) {
+        Py_DECREF(ctu_arr);
+        Py_DECREF(sub_arr);
+        return nullptr;
+    }
+
+    PyDict_SetItemString(dict, "ctu_bit_cost", ctu_arr);
+    PyDict_SetItemString(dict, "sub_mb_bit_cost", sub_arr);
+    PyDict_SetItemString(dict, "ctb_width", PyLong_FromLong(map->ctb_width));
+    PyDict_SetItemString(dict, "ctb_height", PyLong_FromLong(map->ctb_height));
+    PyDict_SetItemString(dict, "ctb_stride", PyLong_FromLong(map->ctb_stride));
+    PyDict_SetItemString(dict, "log2_ctb_size", PyLong_FromLong(map->log2_ctb_size));
+    PyDict_SetItemString(dict, "sub_width", PyLong_FromLong(map->sub_width));
+    PyDict_SetItemString(dict, "sub_height", PyLong_FromLong(map->sub_height));
+    PyDict_SetItemString(dict, "sub_stride", PyLong_FromLong(map->sub_stride));
+
+    Py_DECREF(ctu_arr);
+    Py_DECREF(sub_arr);
+    return dict;
+}
+
+static PyObject *
+extract_bitcost(AVFrame *frame)
+{
+    if (!frame->opaque_ref || !frame->opaque_ref->data)
+        Py_RETURN_NONE;
+    if ((size_t)frame->opaque_ref->size < sizeof(uint32_t))
+        Py_RETURN_NONE;
+    uint32_t magic = *(const uint32_t *)frame->opaque_ref->data;
+    if (magic == H264_MB_BIT_COST_MAP_MAGIC)
+        return extract_h264_bitcost(frame);
+    if (magic == HEVC_CTU_BIT_COST_MAP_MAGIC)
+        return extract_hevc_bitcost(frame);
+    Py_RETURN_NONE;
+}
+
 /* ------------------------------------------------------------------ */
 /* Build one frame result dict                                         */
 /* ------------------------------------------------------------------ */
@@ -207,7 +327,7 @@ build_frame_dict(AVFrame *frame, int frame_count, AVCodecContext *dec_ctx,
     PyDict_SetItemString(item, "codec_name", PyUnicode_FromString(codec_name));
 
     if (export_bitcost) {
-        PyObject *bitcost = extract_h264_bitcost(frame);
+        PyObject *bitcost = extract_bitcost(frame);
         if (!bitcost) {
             Py_DECREF(item);
             return nullptr;
@@ -267,9 +387,7 @@ read_video_fast(PyObject *self, PyObject *args, PyObject *kwargs)
     }
 
     AVStream *st = fmt_ctx->streams[stream_idx];
-    const AVCodec *dec = avcodec_find_decoder_by_name("h264");
-    if (!dec)
-        dec = avcodec_find_decoder(st->codecpar->codec_id);
+    const AVCodec *dec = avcodec_find_decoder(st->codecpar->codec_id);
     if (!dec) {
         avformat_close_input(&fmt_ctx);
         PyErr_SetString(PyExc_IOError, "No H264/HEVC decoder found");
@@ -433,9 +551,7 @@ read_video_fast_selected(PyObject *self, PyObject *args, PyObject *kwargs)
     }
 
     AVStream *st = fmt_ctx->streams[stream_idx];
-    const AVCodec *dec = avcodec_find_decoder_by_name("h264");
-    if (!dec)
-        dec = avcodec_find_decoder(st->codecpar->codec_id);
+    const AVCodec *dec = avcodec_find_decoder(st->codecpar->codec_id);
     if (!dec) {
         Py_DECREF(results);
         avformat_close_input(&fmt_ctx);

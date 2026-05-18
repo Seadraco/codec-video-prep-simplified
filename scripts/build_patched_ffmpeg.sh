@@ -31,7 +31,9 @@ cd "$BUILD"
   --enable-demuxer=mov \
   --enable-demuxer=matroska \
   --enable-demuxer=h264 \
+  --enable-demuxer=hevc \
   --enable-parser=h264 \
+  --enable-parser=hevc \
   --enable-decoder=h264 \
   --enable-decoder=hevc
 
