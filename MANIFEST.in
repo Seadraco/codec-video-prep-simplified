@@ -1,0 +1,5 @@
+recursive-include src/compressed_video_preinfer/libs *.so*
+include native/cv_reader_fast.cpp
+recursive-include ffmpeg_patch *
+include ffmpeg/ffmpeg-snapshot.tar.bz2
+include scripts/build_patched_ffmpeg.sh

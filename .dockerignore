@@ -1,0 +1,10 @@
+.git
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+build_ffmpeg_install/
+wheelhouse/
+dist/
+src/compressed_video_preinfer/libs/
+.pytest_cache/

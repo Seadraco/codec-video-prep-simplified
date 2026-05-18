@@ -1,0 +1,23 @@
+[build-system]
+requires = [
+    "setuptools",
+    "wheel",
+    "numpy"
+]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "compressed-video-preinfer"
+version = "0.1.0"
+description = "Optimized compressed video pre-inference pipeline"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.23,<2.0",
+    "opencv-python-headless<4.12",
+    "Pillow",
+]
+
+[project.scripts]
+cv-preinfer = "compressed_video_preinfer.cli:main"
+cv-preinfer-doctor = "compressed_video_preinfer.doctor:main"
