@@ -38,7 +38,13 @@ cd "$BUILD"
   --enable-decoder=hevc
 
 make -j"$(nproc)"
-make install
+
+mkdir -p "$INSTALL/include" "$INSTALL/lib"
+for component in libavcodec libavformat libavutil libswresample libswscale; do
+  mkdir -p "$INSTALL/include/$component"
+  cp "$component"/*.h "$INSTALL/include/$component/"
+  cp -P "$component"/lib*.so* "$INSTALL/lib/"
+done
 
 mkdir -p "$ROOT/src/compressed_video_preinfer/libs"
 cp "$INSTALL"/lib/libavcodec.so* "$ROOT/src/compressed_video_preinfer/libs/"
