@@ -83,7 +83,7 @@ def decode_frames_bgr_ffmpeg(
 
     decode_h = int(out_h) if out_h is not None and int(out_h) > 0 else int(height)
     decode_w = int(out_w) if out_w is not None and int(out_w) > 0 else int(width)
-    batch_size = int(os.environ.get("CV_PREINFER_FFMPEG_SELECT_BATCH", "64"))
+    batch_size = int(os.environ.get("CV_PREINFER_FFMPEG_SELECT_BATCH", "1024"))
     batch_size = max(1, int(batch_size))
     decoded_map: Dict[int, np.ndarray] = {}
     for start in range(0, len(uniq_ids), batch_size):

@@ -46,6 +46,15 @@ def run_preinfer(
     min_group_frames: int = 8,
     max_group_frames: int = 64,
     bitcost_grid: str = "adaptive",
+    grouping_mode: str = "readiness",
+    frame_sampling_mode: str = "uniform_count",
+    sample_fps: float = 4.0,
+    readiness_sum_threshold: float = 0.0,
+    readiness_sum_threshold_mode: str = "legacy",
+    readiness_norm_sum_threshold: float = 2250000.0,
+    avoid_keyframes: bool = True,
+    save_mask_video: bool = False,
+    parallel_decode_cv_reader: bool = False,
 ) -> PreinferResult:
     """Run the optimized H.264/HEVC bitcost readiness pre-infer path."""
     config = PreinferConfig(
@@ -59,6 +68,15 @@ def run_preinfer(
         min_group_frames=min_group_frames,
         max_group_frames=max_group_frames,
         bitcost_grid=bitcost_grid,
+        grouping_mode=grouping_mode,
+        frame_sampling_mode=frame_sampling_mode,
+        sample_fps=sample_fps,
+        readiness_sum_threshold=readiness_sum_threshold,
+        readiness_sum_threshold_mode=readiness_sum_threshold_mode,
+        readiness_norm_sum_threshold=readiness_norm_sum_threshold,
+        avoid_keyframes=avoid_keyframes,
+        save_mask_video=save_mask_video,
+        parallel_decode_cv_reader=parallel_decode_cv_reader,
     )
     return run_preinfer_config(config)
 
@@ -68,9 +86,10 @@ def run_preinfer_config(config: PreinferConfig) -> PreinferResult:
     cfg = BitcostReadinessConfig(
         video=str(config.video),
         out_dir=str(config.out_dir),
-        frame_sampling_mode="uniform_count",
+        frame_sampling_mode=str(config.frame_sampling_mode),
+        sample_fps=float(config.sample_fps),
         num_sampled_frames=int(config.num_sampled_frames),
-        grouping_mode="readiness",
+        grouping_mode=str(config.grouping_mode),
         group_size=int(config.group_size),
         images_per_group=int(config.images_per_group),
         patch=int(config.patch),
@@ -81,7 +100,17 @@ def run_preinfer_config(config: PreinferConfig) -> PreinferResult:
         canvas_format=str(config.canvas_format),
         avoid_keyframes=bool(config.avoid_keyframes),
         readiness_sum_threshold=float(config.readiness_sum_threshold),
-        parallel_decode_cv_reader=False,
+        readiness_sum_threshold_mode=str(config.readiness_sum_threshold_mode),
+        readiness_norm_sum_threshold=float(config.readiness_norm_sum_threshold),
+        bpppf_clamp_min=0.015,
+        bpppf_clamp_max=0.09,
+        readiness_coverage_bins=3,
+        readiness_delta_ratio=0.05,
+        frame_score_norm_mode="none",
+        frame_score_norm_floor_ratio=0.5,
+        frame_score_norm_allow_boost=False,
+        save_mask_video=bool(config.save_mask_video),
+        parallel_decode_cv_reader=bool(config.parallel_decode_cv_reader),
     )
     result = run_bitcost_readiness(cfg)
     meta_path = Path(result.meta_path)

@@ -22,3 +22,11 @@ class PreinferConfig:
     canvas_format: str = "jpg"
     avoid_keyframes: bool = True
     readiness_sum_threshold: float = 0.0
+    grouping_mode: str = "readiness"
+    frame_sampling_mode: str = "uniform_count"
+    sample_fps: float = 4.0
+    readiness_sum_threshold_mode: str = "legacy"
+    readiness_norm_sum_threshold: float = 2250000.0
+    # ---- misc ----
+    save_mask_video: bool = False
+    parallel_decode_cv_reader: bool = False

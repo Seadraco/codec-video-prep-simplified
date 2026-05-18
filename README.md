@@ -1,101 +1,184 @@
-# Compressed Video Reader
+# compressed-video-preinfer
 
-The Compressed Video Reader is designed to read motion vectors and residuals from H.264/H.265 encoded videos.
+Optimized compressed-video pre-inference pipeline. Extracts codec-level bitcost information from H.264 / HEVC videos and turns it into patch-canvases ready for downstream vision models.
 
-## Installation
+## What it does
 
-To install the reader, you can run the installation script located in the project root:
+- **Patched FFmpeg decoder** – Instruments the H.264 / HEVC decoder to export per-macroblock (H.264) or per-CTU (HEVC) **bitcost** maps during decoding.
+- **Fast C++ extension** (`cv_reader_fast`) – Decodes video with loop-filter / IDCT skipped and optionally returns bitcost data as NumPy arrays.
+- **Readiness grouping** – Groups frames by compressibility (bitcost) so that hard-to-decode regions get more patches.
+- **Top-K patch selection** – Selects the most informative 2×2 patch blocks from each group and packs them into JPG/PNG canvases.
+- **One-command pipeline** – From a raw video to a folder of canvases + metadata in a single call.
 
-```shell
-bash install.sh
-```
+## Install
 
-The script will perform the following tasks:
-
-1. Download the source code of FFmpeg
-2. Apply patches to the source code
-3. Configure and compile the FFmpeg package
-4. Build and install the reader
-
-To test if the reader has been successfully installed, run the following command:
+### From wheel (recommended)
 
 ```bash
-# Test if the reader is installed successfully.
-cv_reader -h || echo "Installation failed!"
+python -m pip install compressed_video_preinfer-*.whl
 ```
+
+Verify the installation:
+
+```bash
+cv-preinfer-doctor
+```
+
+### Build from source
+
+1. Build the patched FFmpeg shared libraries:
+
+```bash
+bash scripts/build_patched_ffmpeg.sh
+```
+
+2. Build and install the Python package:
+
+```bash
+python -m pip install -e .
+```
+
+## Quick start (CLI)
+
+```bash
+cv-preinfer \
+  --video /path/to/video.mp4 \
+  --out_dir ./preinfer_out \
+  --num_sampled_frames 1024 \
+  --group_size 32 \
+  --images_per_group 4 \
+  --max_pixels 153664
+```
+
+Output directory will contain:
+
+- `canvas_*.jpg` – Packed patch canvases
+- `meta.json` – Full metadata, timing, and group info
+- `frame_ids.npy` – Sampled frame indices
+- `src_patch_position.npy` – Patch source positions
 
 ## Python API
 
-### Basic Usage (Load All Frames)
+### High-level one-shot call
 
 ```python
-import cv_reader
-video_frames = cv_reader.read_video(video_path=path_to_video, with_residual=True)
+from compressed_video_preinfer import run_preinfer
+
+result = run_preinfer(
+    video="/path/to/video.mp4",
+    out_dir="./preinfer_out",
+    num_sampled_frames=1024,
+    group_size=32,
+    images_per_group=4,
+    patch=14,
+    max_pixels=153664,
+    min_group_frames=8,
+    max_group_frames=64,
+    bitcost_grid="adaptive",
+)
+
+print(result.out_dir)       # output directory
+print(result.meta_path)     # path to meta.json
+print(result.timings)       # timing breakdown
 ```
 
-### Streaming API (Memory Efficient for Long Videos)
-
-For long videos, use `read_video_cb` to process frames one by one without loading all into memory:
+### Low-level fast decoder
 
 ```python
-import cv_reader
+from compressed_video_preinfer import cv_reader_fast
 
-def process_frame(frame_dict):
-    """Callback function called for each decoded frame.
-    
-    Args:
-        frame_dict: Dictionary containing frame data:
-            - 'frame_idx': Frame index
-            - 'pict_type': Frame type ('I', 'P', 'B')
-            - 'motion_vector': Motion vectors (H/4, W/4, 4) int32
-            - 'motion_energy': Raw motion energy (optional)
-            - 'motion_energy_median': Global median compensated energy (optional)
-            - 'residual_y': Residual Y plane (optional)
-    
-    Returns:
-        True to continue, False to stop decoding
-    """
-    frame_idx = frame_dict['frame_idx']
-    pict_type = frame_dict['pict_type']
-    mv = frame_dict['motion_vector']
-    
-    # Process frame data...
-    print(f"Frame {frame_idx} ({pict_type}): MV shape {mv.shape}")
-    
-    return True  # Continue to next frame
+# Decode all frames with bitcost export
+frames = cv_reader_fast.read_video_fast(
+    path="/path/to/video.mp4",
+    thread_count=16,
+    export_bitcost=1,
+    thread_type="auto",
+)
 
-# Stream video without loading all frames into memory
-cv_reader.read_video_cb(
-    path_to_video,
-    callback=process_frame,
-    without_residual=0,      # 0=with residual, 1=without
-    max_frames=0,            # 0=no limit
-    frame_ids=None,          # None=all frames, or list [0, 10, 20]
-    seek_to_frame=-1,        # -1=from start, or frame index to seek
-    decode_len=0,            # 0=to end, or number of frames to decode
-    residual_rgb=1           # 1=RGB residual, 0=YUV residual
+# Decode selected frames only
+selected = cv_reader_fast.read_video_fast_selected(
+    path="/path/to/video.mp4",
+    frame_ids=[0, 30, 60, 90],
+    thread_count=16,
+    export_bitcost=1,
 )
 ```
 
-## CLI Interface
+Each frame dict contains:
 
-You can use the following command to extract motion vectors and residuals from a compressed video:
+| Key | Description |
+|-----|-------------|
+| `frame_idx` | Frame index |
+| `pict_type` | `'I'`, `'P'` or `'B'` |
+| `width` / `height` | Frame resolution |
+| `codec_name` | Decoder name (`h264`, `hevc`, …) |
+| `bitcost` | Dict with MB/CTU bitcost arrays (when `export_bitcost=1`) |
 
-```text
-$ cv_reader -h
-usage: Compressed Video Reader [-h] video output
+## Project structure
 
-positional arguments:
-  video       Path to h.264/h.265 video file
-  output      Path to save extracted motion vectors and residuals
-
-optional arguments:
-  -h, --help  show this help message and exit
+```
+├── src/compressed_video_preinfer/    # Python package
+│   ├── api.py                        # run_preinfer() entrypoint
+│   ├── cli.py                        # cv-preinfer CLI
+│   ├── doctor.py                     # cv-preinfer-doctor diagnostics
+│   ├── config.py                     # PreinferConfig
+│   └── libs/                         # Bundled FFmpeg .so files
+├── codec_selector/                   # Frame sampling / grouping / patch selection
+│   ├── core/                         # Pipeline, probe, decode, config
+│   ├── plugins/                      # Samplers, scorers, groupers, selectors, packers
+│   └── codec_patch_gop/              # Legacy GOP-based utilities
+├── native/                           # C++ Python extension
+│   └── cv_reader_fast.cpp            # Fast decoder with bitcost export
+├── ffmpeg_patch/                     # FFmpeg source patches
+│   ├── h264_*.c                      # H.264 bitcost instrumentation
+│   ├── hevc_*.c                      # HEVC bitcost instrumentation
+│   └── patch.sh                      # Patch application script
+├── scripts/
+│   ├── build_patched_ffmpeg.sh       # Build patched FFmpeg libs
+│   └── build_manylinux_wheel.sh      # Build manylinux wheel
+├── setup.py                          # setuptools build (C++ extension + FFmpeg libs)
+└── pyproject.toml                    # PEP 517 project metadata
 ```
 
-To run the extraction process on the example video, execute the following command:
+## Build a manylinux wheel
 
 ```bash
-python debug_vis_mvres.py --video ../test_videos/h264_sample.mp4 --num_frames 16 --out_dir ./h264_debug
-python debug_vis_mvres.py --video ../test_videos/h265_sample.mp4 --num_frames 16 --out_dir ./h265_debug
+PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple \
+PIP_TRUSTED_HOST=mirrors.aliyun.com \
+bash scripts/build_manylinux_wheel.sh
 ```
+
+Output:
+
+```
+wheelhouse/compressed_video_preinfer-0.1.0-cp310-cp310-manylinux2014_x86_64.whl
+```
+
+Install and check:
+
+```bash
+python -m pip install wheelhouse/compressed_video_preinfer-*.whl
+cv-preinfer-doctor
+```
+
+To target a different Python ABI, set `PY_TAG`:
+
+```bash
+PY_TAG=cp311-cp311 bash scripts/build_manylinux_wheel.sh
+```
+
+## Diagnostics
+
+`cv-preinfer-doctor` checks:
+
+- `cv_reader_fast` C extension can be imported
+- Bundled FFmpeg shared libraries are present
+- Threading defaults (frame threading, 16 threads)
+
+## Requirements
+
+- Python ≥ 3.10
+- numpy >= 1.23, < 2.0
+- opencv-python-headless < 4.12
+- Pillow
+- Patched FFmpeg shared libraries (built automatically by `scripts/build_patched_ffmpeg.sh`)
