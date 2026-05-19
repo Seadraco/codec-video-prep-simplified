@@ -16,8 +16,12 @@ try:
     from cv_reader_fast import read_video_fast as _read_video_fast
     from cv_reader_fast import read_video_fast_selected as _read_video_fast_selected
 except ImportError:
-    from compressed_video_preinfer.cv_reader_fast import read_video_fast as _read_video_fast
-    from compressed_video_preinfer.cv_reader_fast import read_video_fast_selected as _read_video_fast_selected
+    try:
+        from codec_video_prep.cv_reader_fast import read_video_fast as _read_video_fast
+        from codec_video_prep.cv_reader_fast import read_video_fast_selected as _read_video_fast_selected
+    except ImportError:
+        from compressed_video_preinfer.cv_reader_fast import read_video_fast as _read_video_fast
+        from compressed_video_preinfer.cv_reader_fast import read_video_fast_selected as _read_video_fast_selected
 HAS_CV_READER_FAST = True
 
 

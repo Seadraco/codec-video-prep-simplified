@@ -1,6 +1,6 @@
-# compressed-video-preinfer
+# codec-video-prep
 
-Optimized compressed-video pre-inference pipeline. Extracts codec-level bitcost information from H.264 / HEVC videos and turns it into patch-canvases ready for downstream vision models.
+Codec-aware video preprocessing for training and inference. Extracts codec-level bitcost information from H.264 / HEVC videos and turns it into patch-canvases ready for downstream vision models.
 
 ## What it does
 
@@ -15,13 +15,13 @@ Optimized compressed-video pre-inference pipeline. Extracts codec-level bitcost 
 ### From wheel (recommended)
 
 ```bash
-python -m pip install compressed_video_preinfer-*.whl
+python -m pip install codec_video_prep-*.whl
 ```
 
 Verify the installation:
 
 ```bash
-cv-preinfer-doctor
+codec-video-prep-doctor
 ```
 
 ### Build from source
@@ -41,7 +41,7 @@ python -m pip install -e .
 ## Quick start (CLI)
 
 ```bash
-cv-preinfer \
+codec-video-prep \
   --video /path/to/video.mp4 \
   --out_dir ./preinfer_out \
   --num_sampled_frames 1024 \
@@ -62,7 +62,7 @@ Output directory will contain:
 ### High-level one-shot call
 
 ```python
-from compressed_video_preinfer import run_preinfer
+from codec_video_prep import run_preinfer
 
 result = run_preinfer(
     video="/path/to/video.mp4",
@@ -85,7 +85,7 @@ print(result.timings)       # timing breakdown
 ### Low-level fast decoder
 
 ```python
-from compressed_video_preinfer import cv_reader_fast
+from codec_video_prep import cv_reader_fast
 
 # Decode all frames with bitcost export
 frames = cv_reader_fast.read_video_fast(
@@ -117,10 +117,10 @@ Each frame dict contains:
 ## Project structure
 
 ```
-├── src/compressed_video_preinfer/    # Python package
+├── src/codec_video_prep/    # Python package
 │   ├── api.py                        # run_preinfer() entrypoint
-│   ├── cli.py                        # cv-preinfer CLI
-│   ├── doctor.py                     # cv-preinfer-doctor diagnostics
+│   ├── cli.py                        # codec-video-prep CLI
+│   ├── doctor.py                     # codec-video-prep-doctor diagnostics
 │   ├── config.py                     # PreinferConfig
 │   └── libs/                         # Bundled FFmpeg .so files
 ├── codec_selector/                   # Frame sampling / grouping / patch selection
@@ -151,14 +151,14 @@ bash scripts/build_manylinux_wheel.sh
 Output:
 
 ```
-wheelhouse/compressed_video_preinfer-0.1.0-cp310-cp310-manylinux2014_x86_64.whl
+wheelhouse/codec_video_prep-0.1.0-cp310-cp310-manylinux2014_x86_64.whl
 ```
 
 Install and check:
 
 ```bash
-python -m pip install wheelhouse/compressed_video_preinfer-*.whl
-cv-preinfer-doctor
+python -m pip install wheelhouse/codec_video_prep-*.whl
+codec-video-prep-doctor
 ```
 
 To target a different Python ABI, set `PY_TAG`:
@@ -169,11 +169,19 @@ PY_TAG=cp311-cp311 bash scripts/build_manylinux_wheel.sh
 
 ## Diagnostics
 
-`cv-preinfer-doctor` checks:
+`codec-video-prep-doctor` checks:
 
 - `cv_reader_fast` C extension can be imported
 - Bundled FFmpeg shared libraries are present
-- Threading defaults (frame threading, 16 threads)
+- Threading defaults (auto thread type, 16 threads)
+
+## Backward Compatibility
+
+The old import path and CLI names are kept as aliases:
+
+- `compressed_video_preinfer`
+- `cv-preinfer`
+- `cv-preinfer-doctor`
 
 ## Requirements
 

@@ -7,9 +7,9 @@ requires = [
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "compressed-video-preinfer"
+name = "codec-video-prep"
 version = "0.1.0"
-description = "Optimized compressed video pre-inference pipeline"
+description = "Codec-aware video preprocessing for training and inference"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
@@ -19,5 +19,7 @@ dependencies = [
 ]
 
 [project.scripts]
+codec-video-prep = "codec_video_prep.cli:main"
+codec-video-prep-doctor = "codec_video_prep.doctor:main"
 cv-preinfer = "compressed_video_preinfer.cli:main"
 cv-preinfer-doctor = "compressed_video_preinfer.doctor:main"

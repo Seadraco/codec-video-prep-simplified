@@ -1,19 +1,4 @@
-"""Optimized compressed-video pre-inference package."""
+"""Backward-compatible alias for :mod:`codec_video_prep`."""
 
-from .config import PreinferConfig
+from codec_video_prep import *  # noqa: F401,F403
 
-__all__ = ["PreinferConfig", "PreinferResult", "run_preinfer"]
-
-
-def run_preinfer(*args, **kwargs):
-    from .api import run_preinfer as _run_preinfer
-
-    return _run_preinfer(*args, **kwargs)
-
-
-def __getattr__(name):
-    if name == "PreinferResult":
-        from .api import PreinferResult
-
-        return PreinferResult
-    raise AttributeError(name)

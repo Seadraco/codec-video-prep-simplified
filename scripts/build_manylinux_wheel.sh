@@ -24,18 +24,18 @@ docker run --rm \
   bash -lc "
     set -euo pipefail
     cd /io
-    rm -rf dist wheelhouse compressed_video_preinfer.egg-info
+    rm -rf dist wheelhouse codec_video_prep.egg-info compressed_video_preinfer.egg-info
     if [[ \"\${REUSE_FFMPEG:-0}\" != \"1\" ]]; then
-      rm -rf build build_ffmpeg_install src/compressed_video_preinfer/libs
+      rm -rf build build_ffmpeg_install src/codec_video_prep/libs
     fi
     /opt/python/$PY_TAG/bin/python -m pip install -U pip setuptools wheel build numpy
-    if [[ \"\${REUSE_FFMPEG:-0}\" == \"1\" && -d build_ffmpeg_install/lib && -d src/compressed_video_preinfer/libs ]]; then
+    if [[ \"\${REUSE_FFMPEG:-0}\" == \"1\" && -d build_ffmpeg_install/lib && -d src/codec_video_prep/libs ]]; then
       echo 'Reusing existing patched FFmpeg build.'
     else
       bash scripts/build_patched_ffmpeg.sh
     fi
     /opt/python/$PY_TAG/bin/python -m build --wheel
-    LD_LIBRARY_PATH=/io/build_ffmpeg_install/lib:/io/src/compressed_video_preinfer/libs \
+    LD_LIBRARY_PATH=/io/build_ffmpeg_install/lib:/io/src/codec_video_prep/libs \
       auditwheel repair -w wheelhouse dist/*.whl
     auditwheel show wheelhouse/*.whl
     ls -lh wheelhouse

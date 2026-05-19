@@ -7,7 +7,7 @@ ROOT = Path(__file__).parent
 ffmpeg_root = ROOT / "build_ffmpeg_install"
 
 ext = Extension(
-    "compressed_video_preinfer.cv_reader_fast",
+    "codec_video_prep.cv_reader_fast",
     sources=["native/cv_reader_fast.cpp"],
     include_dirs=[
         str(ffmpeg_root / "include"),
@@ -32,12 +32,15 @@ ext = Extension(
 )
 
 packages = find_packages("src") + find_packages(".", include=["codec_selector", "codec_selector.*"])
-package_dir = {"compressed_video_preinfer": "src/compressed_video_preinfer"}
+package_dir = {
+    "codec_video_prep": "src/codec_video_prep",
+    "compressed_video_preinfer": "src/compressed_video_preinfer",
+}
 
 setup(
-    name="compressed-video-preinfer",
+    name="codec-video-prep",
     version="0.1.0",
-    description="Optimized compressed video pre-inference pipeline",
+    description="Codec-aware video preprocessing for training and inference",
     python_requires=">=3.10",
     install_requires=[
         "numpy>=1.23,<2.0",
@@ -46,12 +49,14 @@ setup(
     ],
     entry_points={
         "console_scripts": [
+            "codec-video-prep=codec_video_prep.cli:main",
+            "codec-video-prep-doctor=codec_video_prep.doctor:main",
             "cv-preinfer=compressed_video_preinfer.cli:main",
             "cv-preinfer-doctor=compressed_video_preinfer.doctor:main",
         ],
     },
     packages=packages,
     package_dir=package_dir,
-    package_data={"compressed_video_preinfer": ["libs/*.so*"]},
+    package_data={"codec_video_prep": ["libs/*.so*"]},
     ext_modules=[ext],
 )

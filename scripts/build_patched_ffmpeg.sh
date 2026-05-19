@@ -46,9 +46,9 @@ for component in libavcodec libavformat libavutil libswresample libswscale; do
   cp -P "$component"/lib*.so* "$INSTALL/lib/"
 done
 
-mkdir -p "$ROOT/src/compressed_video_preinfer/libs"
-cp "$INSTALL"/lib/libavcodec.so* "$ROOT/src/compressed_video_preinfer/libs/"
-cp "$INSTALL"/lib/libavformat.so* "$ROOT/src/compressed_video_preinfer/libs/"
-cp "$INSTALL"/lib/libavutil.so* "$ROOT/src/compressed_video_preinfer/libs/"
-cp "$INSTALL"/lib/libswresample.so* "$ROOT/src/compressed_video_preinfer/libs/"
-cp "$INSTALL"/lib/libswscale.so* "$ROOT/src/compressed_video_preinfer/libs/"
+mkdir -p "$ROOT/src/codec_video_prep/libs"
+cp "$INSTALL"/lib/libavcodec.so* "$ROOT/src/codec_video_prep/libs/"
+cp "$INSTALL"/lib/libavformat.so* "$ROOT/src/codec_video_prep/libs/"
+cp "$INSTALL"/lib/libavutil.so* "$ROOT/src/codec_video_prep/libs/"
+cp "$INSTALL"/lib/libswresample.so* "$ROOT/src/codec_video_prep/libs/"
+cp "$INSTALL"/lib/libswscale.so* "$ROOT/src/codec_video_prep/libs/"

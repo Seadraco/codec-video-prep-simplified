@@ -13,20 +13,20 @@ bash scripts/build_manylinux_wheel.sh
 Output:
 
 ```text
-wheelhouse/compressed_video_preinfer-0.1.0-cp310-cp310-manylinux2014_x86_64.manylinux_2_17_x86_64.whl
+wheelhouse/codec_video_prep-0.1.0-cp310-cp310-manylinux2014_x86_64.manylinux_2_17_x86_64.whl
 ```
 
 Install and check:
 
 ```bash
-python -m pip install wheelhouse/compressed_video_preinfer-0.1.0-*.whl
-cv-preinfer-doctor
+python -m pip install wheelhouse/codec_video_prep-0.1.0-*.whl
+codec-video-prep-doctor
 ```
 
 Run:
 
 ```bash
-cv-preinfer \
+codec-video-prep \
   --video /path/to/video.mp4 \
   --out_dir ./preinfer_out \
   --num_sampled_frames 1024 \
