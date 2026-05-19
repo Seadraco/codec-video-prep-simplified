@@ -21,6 +21,7 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--min_group_frames", type=int, default=8)
     ap.add_argument("--max_group_frames", type=int, default=64)
     ap.add_argument("--bitcost_grid", default="adaptive", choices=["sub", "mb", "ctu", "adaptive"])
+    ap.add_argument("--canvas_format", default="jpg", choices=["jpg", "png", "npy"])
     ap.add_argument("--grouping_mode", default="readiness", choices=["fixed", "readiness"],
                     help="fixed=uniform group_size; readiness=dynamic by content")
     ap.add_argument("--frame_sampling_mode", default="uniform_count",
