@@ -1,0 +1,61 @@
+--- a/libavcodec/h264dec.h
++++ b/libavcodec/h264dec.h
+@@ -153,6 +153,7 @@
+     const PPS   *pps;
+ 
+     int mb_width, mb_height;
++    AVBufferRef *bitcost_buf;
+     int mb_stride;
+ } H264Picture;
+ 
+--- a/libavcodec/h264_picture.c
++++ b/libavcodec/h264_picture.c
+@@ -52,6 +52,7 @@
+         av_buffer_unref(&pic->motion_val_buf[i]);
+         av_buffer_unref(&pic->ref_index_buf[i]);
+     }
++    av_buffer_unref(&pic->bitcost_buf);
+ 
+     memset((uint8_t*)pic + off, 0, sizeof(*pic) - off);
+ }
+@@ -134,6 +135,14 @@
+         dst->hwaccel_picture_private = dst->hwaccel_priv_buf->data;
+     }
+ 
++    if (src->bitcost_buf) {
++        dst->bitcost_buf = av_buffer_ref(src->bitcost_buf);
++        if (!dst->bitcost_buf) {
++            ret = AVERROR(ENOMEM);
++            goto fail;
++        }
++    }
++
+     h264_copy_picture_params(dst, src);
+ 
+     return 0;
+@@ -185,6 +194,10 @@
+ 
+     dst->hwaccel_picture_private = src->hwaccel_picture_private;
+ 
++    ret = av_buffer_replace(&dst->bitcost_buf, src->bitcost_buf);
++    if (ret < 0)
++        goto fail;
++
+     h264_copy_picture_params(dst, src);
+ 
+     return 0;
+--- a/libavcodec/h264dec.c
++++ b/libavcodec/h264dec.c
+@@ -848,6 +848,12 @@
+     ret = av_frame_ref(dst, srcp->needs_fg ? srcp->f_grain : srcp->f);
+     if (ret < 0)
+         return ret;
++
++    if (srcp->bitcost_buf) {
++        ret = av_buffer_replace(&dst->opaque_ref, srcp->bitcost_buf);
++        if (ret < 0)
++            goto fail;
++    }
+ 
+     if (srcp->needs_fg && (ret = av_frame_copy_props(dst, srcp->f)) < 0)
+         return ret;

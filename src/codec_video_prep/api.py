@@ -12,17 +12,18 @@ from codec_selector.core.config import BitcostReadinessConfig
 from codec_selector.core.pipeline import run_bitcost_readiness
 
 from .config import PreinferConfig
+from typing import Dict, List, Tuple
 
 
 @dataclass
 class PreinferResult:
     out_dir: str
     meta_path: str
-    canvas_files: list[str]
-    summary: dict[str, Any]
+    canvas_files: List[str]
+    summary: Dict[str, Any]
 
     @property
-    def timings(self) -> dict[str, Any]:
+    def timings(self) -> Dict[str, Any]:
         return dict(self.summary.get("timings") or self.summary.get("timing_sec") or {})
 
 
@@ -56,6 +57,7 @@ def run_preinfer(
     avoid_keyframes: bool = True,
     save_mask_video: bool = False,
     parallel_decode_cv_reader: bool = False,
+    decode_backend: str = "ffmpeg_native",
 ) -> PreinferResult:
     """Run the optimized H.264/HEVC bitcost readiness preprocessing path."""
     config = PreinferConfig(
@@ -79,6 +81,7 @@ def run_preinfer(
         avoid_keyframes=avoid_keyframes,
         save_mask_video=save_mask_video,
         parallel_decode_cv_reader=parallel_decode_cv_reader,
+        decode_backend=decode_backend,
     )
     return run_preinfer_config(config)
 
@@ -113,6 +116,7 @@ def run_preinfer_config(config: PreinferConfig) -> PreinferResult:
         frame_score_norm_allow_boost=False,
         save_mask_video=bool(config.save_mask_video),
         parallel_decode_cv_reader=bool(config.parallel_decode_cv_reader),
+        decode_backend=str(config.decode_backend),
     )
     result = run_bitcost_readiness(cfg)
     meta_path = Path(result.meta_path)

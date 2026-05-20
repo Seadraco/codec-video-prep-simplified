@@ -22,7 +22,6 @@ ext = Extension(
         "-Wl,--no-as-needed",
         "-lavformat",
         "-lavcodec",
-        "-lswresample",
         "-lswscale",
         "-lavutil",
         "-Wl,--as-needed",

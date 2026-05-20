@@ -48,6 +48,9 @@ def build_parser() -> argparse.ArgumentParser:
                     help="Save side-by-side mask visualization video")
     ap.add_argument("--parallel_decode_cv_reader", action="store_true",
                     help="Parallelize decode and cv_reader")
+    ap.add_argument("--decode_backend", default="ffmpeg_native",
+                    choices=["ffmpeg_native", "cv_reader_pixels"],
+                    help="Decode backend")
     return ap
 
 

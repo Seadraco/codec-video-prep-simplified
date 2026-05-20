@@ -3,6 +3,7 @@
 """Composable bitcost readiness pipeline."""
 
 import json
+import os
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -191,6 +192,18 @@ def run_bitcost_readiness(config: BitcostReadinessConfig) -> PipelineResult:
         items = cv_reader_fetch_bitcost(str(cfg.video), [int(x) for x in frame_ids], bitcost_grid=str(cfg.bitcost_grid))
         return items, elapsed_since(t_inner)
 
+    def timed_fetch_bitcost_and_pixels() -> tuple[List[Dict[str, Any]], List[np.ndarray], float]:
+        t_inner = time.perf_counter()
+        items = cv_reader_fetch_bitcost(
+            str(cfg.video), [int(x) for x in frame_ids],
+            bitcost_grid=str(cfg.bitcost_grid),
+            export_pixels=1,
+            out_w=int(prepared_w),
+            out_h=int(prepared_h),
+        )
+        frames = [it["pixels"] for it in items]
+        return items, frames, elapsed_since(t_inner)
+
     cfg = config.normalized()
     ensure_dir(cfg.out_dir)
     out_dir = Path(cfg.out_dir)
@@ -239,8 +252,13 @@ def run_bitcost_readiness(config: BitcostReadinessConfig) -> PipelineResult:
     decode_out_w = int(prepared_w) if bool(cfg.ffmpeg_preprocess_frames) and not bool(cfg.no_resize) else None
     timing["resolve_frame_geometry"] = elapsed_since(t0)
 
+    use_cv_pixels = str(cfg.decode_backend) == "cv_reader_pixels"
     t0 = time.perf_counter()
-    if bool(cfg.parallel_decode_cv_reader):
+    if use_cv_pixels:
+        bitcost_items, frames_bgr, timing["cv_reader_fetch_bitcost"] = timed_fetch_bitcost_and_pixels()
+        timing["decode_frames"] = 0.0
+        timing["decode_and_cv_reader_serial_wall"] = elapsed_since(t0)
+    elif bool(cfg.parallel_decode_cv_reader):
         with ThreadPoolExecutor(max_workers=2) as executor:
             decode_future = executor.submit(timed_decode_frames)
             bitcost_future = executor.submit(timed_fetch_bitcost)

@@ -30,3 +30,4 @@ class PreinferConfig:
     # ---- misc ----
     save_mask_video: bool = False
     parallel_decode_cv_reader: bool = False
+    decode_backend: str = "ffmpeg_native"

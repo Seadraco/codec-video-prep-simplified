@@ -72,6 +72,9 @@ def cv_reader_fetch_bitcost(
     video_path: str,
     frame_ids: list,
     bitcost_grid: str = "all",
+    export_pixels: int = 0,
+    out_w: int = 0,
+    out_h: int = 0,
 ) -> list[dict]:
     """Fetch bit-cost maps aligned with frame_ids using cv_reader_fast."""
     frame_ids = [int(x) for x in frame_ids]
@@ -101,6 +104,9 @@ def cv_reader_fetch_bitcost(
         thread_count=thread_count,
         export_bitcost=1,
         thread_type=thread_type,
+        export_pixels=export_pixels,
+        out_w=out_w,
+        out_h=out_h,
     )
 
     lookup = {int(f["frame_idx"]): f for f in all_frames}
@@ -121,6 +127,8 @@ def cv_reader_fetch_bitcost(
                 item["ctu_bit_cost"] = np.asarray(bc["ctu_bit_cost"])
             if "pict_type" in fr:
                 item["pict_type"] = fr["pict_type"]
+            if export_pixels and "pixels" in fr:
+                item["pixels"] = fr["pixels"]
             last_good = item
         elif last_good is not None:
             item = dict(last_good)

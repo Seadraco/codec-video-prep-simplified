@@ -113,7 +113,9 @@ class BitcostReadinessConfig:
         self.frame_score_norm_mode = str(self.frame_score_norm_mode).lower().strip()
         self.readiness_sum_threshold_mode = str(self.readiness_sum_threshold_mode).lower().strip()
         self.canvas_format = str(self.canvas_format).lower().strip()
-        self.decode_backend = "ffmpeg_native"
+        self.decode_backend = str(self.decode_backend).lower().strip()
+        if self.decode_backend not in {"ffmpeg_native", "cv_reader_pixels"}:
+            self.decode_backend = "ffmpeg_native"
         self.ffmpeg_preprocess_frames = bool(self.ffmpeg_preprocess_frames)
         self.parallel_decode_cv_reader = bool(self.parallel_decode_cv_reader)
         self.patch = int(max(1, int(self.patch)))

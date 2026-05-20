@@ -10,7 +10,7 @@ mkdir -p "$BUILD"
 
 tar xf "$ROOT/ffmpeg/ffmpeg-snapshot.tar.bz2" -C "$BUILD" --strip-components=1
 
-export FFMPEG_PATCH_DIR="$ROOT/ffmpeg_patch"
+export FFMPEG_PATCH_DIR="$ROOT/ffmpeg_patch/full_skip"
 export FFMPEG_INSTALL_DIR="$BUILD"
 bash "$FFMPEG_PATCH_DIR/patch.sh"
 
@@ -22,6 +22,7 @@ cd "$BUILD"
   --disable-programs \
   --disable-doc \
   --disable-debug \
+  --disable-x86asm \
   --enable-avcodec \
   --enable-avformat \
   --enable-avutil \
@@ -38,13 +39,7 @@ cd "$BUILD"
   --enable-decoder=hevc
 
 make -j"$(nproc)"
-
-mkdir -p "$INSTALL/include" "$INSTALL/lib"
-for component in libavcodec libavformat libavutil libswresample libswscale; do
-  mkdir -p "$INSTALL/include/$component"
-  cp "$component"/*.h "$INSTALL/include/$component/"
-  cp -P "$component"/lib*.so* "$INSTALL/lib/"
-done
+make install
 
 mkdir -p "$ROOT/src/codec_video_prep/libs"
 cp "$INSTALL"/lib/libavcodec.so* "$ROOT/src/codec_video_prep/libs/"
