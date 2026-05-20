@@ -28,9 +28,14 @@ codec-video-prep-doctor
 
 1. Build the patched FFmpeg shared libraries:
 
-```bash
-bash scripts/build_patched_ffmpeg.sh
-```
+   - **Pixel-capable** (recommended — supports both bitcost and BGR pixel export):
+     ```bash
+     bash build_pixel_ffmpeg.sh
+     ```
+   - **Legacy skip-IDCT** (faster bitcost-only scan, no pixel output):
+     ```bash
+     bash scripts/build_patched_ffmpeg.sh
+     ```
 
 2. Build and install the Python package:
 
@@ -57,6 +62,42 @@ Output directory will contain:
 - `frame_ids.npy` – Sampled frame indices
 - `src_patch_position.npy` – Patch source positions
 
+### Decode backends
+
+Two decode backends are available:
+
+| Backend | Description | Best for |
+|---------|-------------|----------|
+| `ffmpeg_native` (default) | FFmpeg subprocess decode + `cv_reader_fast` bitcost scan | General use |
+| `cv_reader_pixels` | Single-pass decode via `cv_reader_fast` that returns **both** bitcost and BGR pixels | Speed (~1.8–1.9× faster end-to-end) |
+
+Switch backend:
+
+```bash
+codec-video-prep --decode_backend cv_reader_pixels ...
+```
+
+### Parallel segment decoding
+
+For long videos with dense frame sampling, the bitcost-scan step dominates total time. You can split the workload into N parallel decode segments using `ProcessPoolExecutor`:
+
+```bash
+codec-video-prep \
+  --decode_backend cv_reader_pixels \
+  --parallel_segments 4 \
+  --threads_per_segment 4 \
+  --segment_guard_frames 30 \
+  ...
+```
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `--parallel_segments` | `0` (disabled) | Number of parallel segments. Set to `0` or `1` to use serial decoding. |
+| `--threads_per_segment` | `4` | FFmpeg `thread_count` inside each worker process. |
+| `--segment_guard_frames` | `30` | Extra frames decoded before/after each segment boundary to compensate for seek-to-keyframe inaccuracy. |
+
+> **Note:** Parallel segment decoding incurs process-spawn overhead. For short clips (< a few thousand frames) serial decoding is usually faster. The benefit appears on long videos with dense sampling (e.g. 10k+ frames).
+
 ## Python API
 
 ### High-level one-shot call
@@ -75,6 +116,10 @@ result = run_preinfer(
     min_group_frames=8,
     max_group_frames=64,
     bitcost_grid="adaptive",
+    decode_backend="cv_reader_pixels",   # or "ffmpeg_native"
+    parallel_segments=4,                  # 0 = serial
+    threads_per_segment=4,
+    segment_guard_frames=30,
 )
 
 print(result.out_dir)       # output directory
@@ -95,12 +140,28 @@ frames = cv_reader_fast.read_video_fast(
     thread_type="auto",
 )
 
-# Decode selected frames only
+# Decode selected frames only (bitcost + optional pixels)
 selected = cv_reader_fast.read_video_fast_selected(
     path="/path/to/video.mp4",
     frame_ids=[0, 30, 60, 90],
     thread_count=16,
     export_bitcost=1,
+    export_pixels=1,   # also return BGR pixels
+    out_w=224,         # optional resize width
+    out_h=224,         # optional resize height
+)
+
+# Segment seek + decode (used internally for parallel workers)
+segment = cv_reader_fast.read_video_fast_selected_segment(
+    path="/path/to/video.mp4",
+    frame_ids=[30, 60, 90],
+    seek_frame=0,       # seek target (decoder lands on nearest keyframe before this)
+    end_frame=120,      # stop after this frame index
+    thread_count=4,
+    export_bitcost=1,
+    export_pixels=1,
+    out_w=224,
+    out_h=224,
 )
 ```
 
@@ -113,6 +174,7 @@ Each frame dict contains:
 | `width` / `height` | Frame resolution |
 | `codec_name` | Decoder name (`h264`, `hevc`, …) |
 | `bitcost` | Dict with MB/CTU bitcost arrays (when `export_bitcost=1`) |
+| `pixels` | `(H, W, 3)` uint8 BGR array (when `export_pixels=1`)
 
 ## Project structure
 
@@ -128,13 +190,19 @@ Each frame dict contains:
 │   ├── plugins/                      # Samplers, scorers, groupers, selectors, packers
 │   └── codec_patch_gop/              # Legacy GOP-based utilities
 ├── native/                           # C++ Python extension
-│   └── cv_reader_fast.cpp            # Fast decoder with bitcost export
+│   └── cv_reader_fast.cpp            # Fast decoder with bitcost + pixel export, segment seek API
 ├── ffmpeg_patch/                     # FFmpeg source patches
-│   ├── h264_*.c                      # H.264 bitcost instrumentation
-│   ├── hevc_*.c                      # HEVC bitcost instrumentation
-│   └── patch.sh                      # Patch application script
+│   ├── bitcost_only/                 # Pixel-capable patches (H.264 + HEVC, keeps full IDCT)
+│   │   ├── h264_cabac.c / h264_cavlc.c
+│   │   ├── hevcdec.c / hevcdec.h / hevc_refs.c
+│   │   └── h264_bitcost_only.patch
+│   └── full_skip/                    # Legacy skip-IDCT patches (faster, no pixel output)
+│       ├── h264_*.c
+│       ├── hevc_*.c
+│       └── patch.sh
 ├── scripts/
-│   ├── build_patched_ffmpeg.sh       # Build patched FFmpeg libs
+│   ├── build_patched_ffmpeg.sh       # Build legacy skip-IDCT FFmpeg libs
+│   ├── build_pixel_ffmpeg.sh         # Build pixel-capable FFmpeg libs
 │   └── build_manylinux_wheel.sh      # Build manylinux wheel
 ├── setup.py                          # setuptools build (C++ extension + FFmpeg libs)
 └── pyproject.toml                    # PEP 517 project metadata
