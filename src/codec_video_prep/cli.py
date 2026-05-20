@@ -51,6 +51,12 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--decode_backend", default="ffmpeg_native",
                     choices=["ffmpeg_native", "cv_reader_pixels"],
                     help="Decode backend")
+    ap.add_argument("--parallel_segments", type=int, default=0,
+                    help="Number of parallel decode segments (0=disabled)")
+    ap.add_argument("--threads_per_segment", type=int, default=4,
+                    help="FFmpeg threads per segment worker")
+    ap.add_argument("--segment_guard_frames", type=int, default=30,
+                    help="Extra frames before/after each segment for seek accuracy")
     return ap
 
 

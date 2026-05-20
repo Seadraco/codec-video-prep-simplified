@@ -104,6 +104,10 @@ class BitcostReadinessConfig:
     ffmpeg_preprocess_frames: bool = True
     parallel_decode_cv_reader: bool = False
 
+    parallel_segments: int = 0
+    threads_per_segment: int = 4
+    segment_guard_frames: int = 30
+
     extra: Dict[str, Any] = field(default_factory=dict)
 
     def normalized(self) -> "BitcostReadinessConfig":
@@ -118,6 +122,9 @@ class BitcostReadinessConfig:
             self.decode_backend = "ffmpeg_native"
         self.ffmpeg_preprocess_frames = bool(self.ffmpeg_preprocess_frames)
         self.parallel_decode_cv_reader = bool(self.parallel_decode_cv_reader)
+        self.parallel_segments = max(0, int(self.parallel_segments))
+        self.threads_per_segment = max(1, int(self.threads_per_segment))
+        self.segment_guard_frames = max(0, int(self.segment_guard_frames))
         self.patch = int(max(1, int(self.patch)))
         self.block_size = int(max(1, int(self.block_size)))
         return self

@@ -189,7 +189,13 @@ def run_bitcost_readiness(config: BitcostReadinessConfig) -> PipelineResult:
 
     def timed_fetch_bitcost() -> tuple[List[Dict[str, Any]], float]:
         t_inner = time.perf_counter()
-        items = cv_reader_fetch_bitcost(str(cfg.video), [int(x) for x in frame_ids], bitcost_grid=str(cfg.bitcost_grid))
+        items = cv_reader_fetch_bitcost(
+            str(cfg.video), [int(x) for x in frame_ids],
+            bitcost_grid=str(cfg.bitcost_grid),
+            parallel_segments=int(cfg.parallel_segments),
+            threads_per_segment=int(cfg.threads_per_segment),
+            segment_guard_frames=int(cfg.segment_guard_frames),
+        )
         return items, elapsed_since(t_inner)
 
     def timed_fetch_bitcost_and_pixels() -> tuple[List[Dict[str, Any]], List[np.ndarray], float]:
@@ -200,6 +206,9 @@ def run_bitcost_readiness(config: BitcostReadinessConfig) -> PipelineResult:
             export_pixels=1,
             out_w=int(prepared_w),
             out_h=int(prepared_h),
+            parallel_segments=int(cfg.parallel_segments),
+            threads_per_segment=int(cfg.threads_per_segment),
+            segment_guard_frames=int(cfg.segment_guard_frames),
         )
         frames = [it["pixels"] for it in items]
         return items, frames, elapsed_since(t_inner)

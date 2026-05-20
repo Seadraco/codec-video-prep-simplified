@@ -31,3 +31,6 @@ class PreinferConfig:
     save_mask_video: bool = False
     parallel_decode_cv_reader: bool = False
     decode_backend: str = "ffmpeg_native"
+    parallel_segments: int = 0
+    threads_per_segment: int = 4
+    segment_guard_frames: int = 30

@@ -58,6 +58,9 @@ def run_preinfer(
     save_mask_video: bool = False,
     parallel_decode_cv_reader: bool = False,
     decode_backend: str = "ffmpeg_native",
+    parallel_segments: int = 0,
+    threads_per_segment: int = 4,
+    segment_guard_frames: int = 30,
 ) -> PreinferResult:
     """Run the optimized H.264/HEVC bitcost readiness preprocessing path."""
     config = PreinferConfig(
@@ -82,6 +85,9 @@ def run_preinfer(
         save_mask_video=save_mask_video,
         parallel_decode_cv_reader=parallel_decode_cv_reader,
         decode_backend=decode_backend,
+        parallel_segments=parallel_segments,
+        threads_per_segment=threads_per_segment,
+        segment_guard_frames=segment_guard_frames,
     )
     return run_preinfer_config(config)
 
@@ -117,6 +123,9 @@ def run_preinfer_config(config: PreinferConfig) -> PreinferResult:
         save_mask_video=bool(config.save_mask_video),
         parallel_decode_cv_reader=bool(config.parallel_decode_cv_reader),
         decode_backend=str(config.decode_backend),
+        parallel_segments=int(config.parallel_segments),
+        threads_per_segment=int(config.threads_per_segment),
+        segment_guard_frames=int(config.segment_guard_frames),
     )
     result = run_bitcost_readiness(cfg)
     meta_path = Path(result.meta_path)

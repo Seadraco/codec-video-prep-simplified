@@ -8,6 +8,7 @@ import math
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 import numpy as np
 import cv2
@@ -15,14 +16,22 @@ import cv2
 try:
     from cv_reader_fast import read_video_fast as _read_video_fast
     from cv_reader_fast import read_video_fast_selected as _read_video_fast_selected
+    from cv_reader_fast import read_video_fast_selected_segment as _read_video_fast_selected_segment
 except ImportError:
     try:
         from codec_video_prep.cv_reader_fast import read_video_fast as _read_video_fast
         from codec_video_prep.cv_reader_fast import read_video_fast_selected as _read_video_fast_selected
+        from codec_video_prep.cv_reader_fast import read_video_fast_selected_segment as _read_video_fast_selected_segment
     except ImportError:
-        from compressed_video_preinfer.cv_reader_fast import read_video_fast as _read_video_fast
-        from compressed_video_preinfer.cv_reader_fast import read_video_fast_selected as _read_video_fast_selected
-HAS_CV_READER_FAST = True
+        try:
+            from compressed_video_preinfer.cv_reader_fast import read_video_fast as _read_video_fast
+            from compressed_video_preinfer.cv_reader_fast import read_video_fast_selected as _read_video_fast_selected
+            from compressed_video_preinfer.cv_reader_fast import read_video_fast_selected_segment as _read_video_fast_selected_segment
+        except ImportError:
+            _read_video_fast = None
+            _read_video_fast_selected = None
+            _read_video_fast_selected_segment = None
+HAS_CV_READER_FAST = _read_video_fast is not None
 
 
 from .utils import ensure_dir, format_timestamp_ss, smart_resize, _clamp_int, _round_to_multiple
@@ -68,6 +77,119 @@ from .scoring import (
 )
 
 
+def _split_frame_ids_for_segments(frame_ids: List[int], segments: int) -> List[List[int]]:
+    n = int(len(frame_ids))
+    segments = int(max(1, min(int(segments), n)))
+    out: List[List[int]] = []
+    for i in range(segments):
+        a = int(round(i * n / segments))
+        b = int(round((i + 1) * n / segments))
+        part = [int(x) for x in frame_ids[a:b]]
+        if part:
+            out.append(part)
+    return out
+
+
+def _cv_reader_segment_worker(args: Tuple[str, List[int], int, int, int, str, int, int, int]) -> Tuple[int, List[Dict[str, Any]]]:
+    video_path, part_ids, seek_frame, end_frame, thread_count, thread_type, export_pixels, out_w, out_h = args
+    try:
+        from cv_reader_fast import read_video_fast_selected_segment
+    except ImportError:
+        from codec_video_prep.cv_reader_fast import read_video_fast_selected_segment
+    try:
+        items = read_video_fast_selected_segment(
+            str(video_path),
+            [int(x) for x in part_ids],
+            seek_frame=int(seek_frame),
+            end_frame=int(end_frame),
+            thread_count=int(thread_count),
+            export_bitcost=1,
+            thread_type=str(thread_type),
+            export_pixels=int(export_pixels),
+            out_w=int(out_w),
+            out_h=int(out_h),
+        )
+    except Exception:
+        from compressed_video_preinfer.cv_reader_fast import read_video_fast_selected_segment
+        items = read_video_fast_selected_segment(
+            str(video_path),
+            [int(x) for x in part_ids],
+            seek_frame=int(seek_frame),
+            end_frame=int(end_frame),
+            thread_count=int(thread_count),
+            export_bitcost=1,
+            thread_type=str(thread_type),
+            export_pixels=int(export_pixels),
+            out_w=int(out_w),
+            out_h=int(out_h),
+        )
+    return int(part_ids[0] if part_ids else -1), list(items)
+
+
+def _fetch_bitcost_parallel_segments(
+    video_path: str,
+    frame_ids: List[int],
+    segments: int,
+    thread_count: int,
+    thread_type: str,
+    guard_frames: int,
+    export_pixels: int = 0,
+    out_w: int = 0,
+    out_h: int = 0,
+) -> List[Dict[str, Any]]:
+    if _read_video_fast_selected_segment is None:
+        raise RuntimeError("cv_reader_fast segment seek API is not available")
+    if int(segments) <= 1 or len(frame_ids) <= 1:
+        raise RuntimeError("parallel cv_reader requires at least 2 segments and frames")
+
+    sorted_ids = sorted(int(x) for x in frame_ids)
+    parts = _split_frame_ids_for_segments(sorted_ids, int(segments))
+    jobs = []
+    for part in parts:
+        seek_frame = max(0, int(part[0]) - int(guard_frames))
+        end_frame = int(part[-1]) + int(guard_frames)
+        jobs.append((
+            str(video_path), part, seek_frame, end_frame,
+            int(thread_count), str(thread_type),
+            int(export_pixels), int(out_w), int(out_h),
+        ))
+
+    results: List[Tuple[int, List[Dict[str, Any]]]] = []
+    with ProcessPoolExecutor(max_workers=len(jobs)) as executor:
+        futures = [executor.submit(_cv_reader_segment_worker, job) for job in jobs]
+        for future in as_completed(futures):
+            results.append(future.result())
+
+    results.sort(key=lambda x: x[0])
+    items: List[Dict[str, Any]] = []
+    for _, part_items in results:
+        items.extend(part_items)
+
+    got_counts: Dict[int, int] = {}
+    want_counts: Dict[int, int] = {}
+    for fid in sorted_ids:
+        want_counts[int(fid)] = want_counts.get(int(fid), 0) + 1
+    for item in items:
+        fid = int(item.get("frame_idx", -1))
+        got_counts[fid] = got_counts.get(fid, 0) + 1
+    if got_counts != want_counts:
+        missing = [fid for fid, cnt in want_counts.items() if got_counts.get(fid, 0) != cnt][:8]
+        extra = [fid for fid, cnt in got_counts.items() if want_counts.get(fid, 0) != cnt][:8]
+        raise RuntimeError(f"segment cv_reader frame mismatch: missing={missing} extra={extra}")
+
+    by_frame: Dict[int, List[Dict[str, Any]]] = {}
+    for item in items:
+        by_frame.setdefault(int(item.get("frame_idx", -1)), []).append(item)
+
+    ordered: List[Dict[str, Any]] = []
+    for fid in frame_ids:
+        bucket = by_frame.get(int(fid))
+        if not bucket:
+            raise RuntimeError(f"segment cv_reader missing frame {int(fid)}")
+        ordered.append(bucket.pop(0))
+    return ordered
+
+
 def cv_reader_fetch_bitcost(
     video_path: str,
     frame_ids: list,
@@ -75,6 +197,9 @@ def cv_reader_fetch_bitcost(
     export_pixels: int = 0,
     out_w: int = 0,
     out_h: int = 0,
+    parallel_segments: int = 0,
+    threads_per_segment: int = 4,
+    segment_guard_frames: int = 30,
 ) -> list[dict]:
     """Fetch bit-cost maps aligned with frame_ids using cv_reader_fast."""
     frame_ids = [int(x) for x in frame_ids]
@@ -98,16 +223,35 @@ def cv_reader_fetch_bitcost(
         # The patched HEVC bitcost path stores CTU maps correctly under slice
         # threading; frame threading can crash inside FFmpeg's HEVC decoder.
         thread_type = "slice"
-    all_frames = _read_video_fast_selected(
-        str(video_path),
-        frame_ids,
-        thread_count=thread_count,
-        export_bitcost=1,
-        thread_type=thread_type,
-        export_pixels=export_pixels,
-        out_w=out_w,
-        out_h=out_h,
-    )
+
+    all_frames = None
+    if int(parallel_segments) > 1:
+        try:
+            all_frames = _fetch_bitcost_parallel_segments(
+                video_path=str(video_path),
+                frame_ids=frame_ids,
+                segments=int(parallel_segments),
+                thread_count=int(threads_per_segment),
+                thread_type=str(thread_type),
+                guard_frames=int(segment_guard_frames),
+                export_pixels=int(export_pixels),
+                out_w=int(out_w),
+                out_h=int(out_h),
+            )
+        except Exception as exc:
+            print(f"[warn] parallel cv_reader segment seek failed, fallback to serial: {exc}")
+
+    if all_frames is None:
+        all_frames = _read_video_fast_selected(
+            str(video_path),
+            frame_ids,
+            thread_count=thread_count,
+            export_bitcost=1,
+            thread_type=thread_type,
+            export_pixels=export_pixels,
+            out_w=out_w,
+            out_h=out_h,
+        )
 
     lookup = {int(f["frame_idx"]): f for f in all_frames}
     out = [None] * len(frame_ids)
@@ -324,6 +468,9 @@ def process_one_video(
     bitcost_pct: float = 99.0,
     bitcost_log_scale: bool = True,
     decode_backend: str = "ffmpeg_native",
+    parallel_segments: int = 0,
+    threads_per_segment: int = 4,
+    segment_guard_frames: int = 30,
     mask_letterbox: bool = True,
     letterbox_dark_thr: float = 16.0,
     collage_patch_order: str = "time",
@@ -727,7 +874,12 @@ def process_one_video(
     if use_cv:
         try:
             if score_source == "bitcost":
-                items = cv_reader_fetch_bitcost(vp, frame_ids)
+                items = cv_reader_fetch_bitcost(
+                    vp, frame_ids,
+                    parallel_segments=int(parallel_segments),
+                    threads_per_segment=int(threads_per_segment),
+                    segment_guard_frames=int(segment_guard_frames),
+                )
             else:
                 items = cv_reader_fetch_mvres(vp, frame_ids)
         except Exception:

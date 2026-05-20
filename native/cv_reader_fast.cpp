@@ -344,6 +344,20 @@ build_frame_dict(AVFrame *frame, int frame_count, AVCodecContext *dec_ctx,
 }
 
 /* ------------------------------------------------------------------ */
+/* Frame index from PTS or fallback count                               */
+/* ------------------------------------------------------------------ */
+static int
+frame_idx_from_pts_or_count(AVFrame *frame, int fallback_count, AVRational st_time_base, AVRational fr)
+{
+    int frame_idx = fallback_count;
+    int64_t best_ts = frame->best_effort_timestamp;
+    if (best_ts != AV_NOPTS_VALUE && fr.num > 0 && fr.den > 0) {
+        frame_idx = (int)av_rescale_q(best_ts, st_time_base, av_inv_q(fr));
+    }
+    return frame_idx;
+}
+
+/* ------------------------------------------------------------------ */
 /* Convert AVFrame YUV -> BGR numpy array                              */
 /* ------------------------------------------------------------------ */
 static PyObject *
@@ -988,11 +1002,270 @@ cleanup_selected:
     return results;
 }
 
+/* ------------------------------------------------------------------ */
+/* Segment seek + decode for parallel workers                           */
+/* ------------------------------------------------------------------ */
+static PyObject *
+read_video_fast_selected_segment(PyObject *self, PyObject *args, PyObject *kwargs)
+{
+    const char *path = nullptr;
+    PyObject *frame_ids_obj = nullptr;
+    int seek_frame = 0;
+    int end_frame = -1;
+    int thread_count = 1;
+    int export_bitcost = 0;
+    const char *thread_type_str = "auto";
+    int export_pixels = 0;
+    int out_w = 0;
+    int out_h = 0;
+
+    static const char *kwlist[] = {
+        "path", "frame_ids", "seek_frame", "end_frame",
+        "thread_count", "export_bitcost", "thread_type",
+        "export_pixels", "out_w", "out_h", nullptr
+    };
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "sOii|iisiii",
+                                     (char **)kwlist,
+                                     &path, &frame_ids_obj, &seek_frame, &end_frame,
+                                     &thread_count, &export_bitcost, &thread_type_str,
+                                     &export_pixels, &out_w, &out_h))
+        return nullptr;
+
+    std::unordered_map<int, int> wanted_counts;
+    int max_wanted = -1;
+    PyObject *seq = PySequence_Fast(frame_ids_obj, "frame_ids must be a sequence of ints");
+    if (!seq)
+        return nullptr;
+    Py_ssize_t n = PySequence_Fast_GET_SIZE(seq);
+    for (Py_ssize_t i = 0; i < n; ++i) {
+        PyObject *obj = PySequence_Fast_GET_ITEM(seq, i);
+        long v = PyLong_AsLong(obj);
+        if (PyErr_Occurred()) {
+            Py_DECREF(seq);
+            return nullptr;
+        }
+        if (v < 0)
+            continue;
+        wanted_counts[(int)v] += 1;
+        if ((int)v > max_wanted)
+            max_wanted = (int)v;
+    }
+    Py_DECREF(seq);
+
+    PyObject *results = PyList_New(0);
+    if (!results)
+        return nullptr;
+    if (wanted_counts.empty())
+        return results;
+    if (end_frame < 0)
+        end_frame = max_wanted;
+
+    int thread_type = FF_THREAD_FRAME;
+    if (strcmp(thread_type_str, "slice") == 0) {
+        thread_type = FF_THREAD_SLICE;
+    } else if (strcmp(thread_type_str, "frame") == 0) {
+        thread_type = FF_THREAD_FRAME;
+    } else {
+        thread_type = export_bitcost ? FF_THREAD_SLICE : FF_THREAD_FRAME;
+    }
+
+    AVFormatContext *fmt_ctx = nullptr;
+    if (avformat_open_input(&fmt_ctx, path, nullptr, nullptr) < 0) {
+        Py_DECREF(results);
+        PyErr_SetString(PyExc_IOError, "Failed to open video file");
+        return nullptr;
+    }
+
+    if (avformat_find_stream_info(fmt_ctx, nullptr) < 0) {
+        Py_DECREF(results);
+        avformat_close_input(&fmt_ctx);
+        PyErr_SetString(PyExc_IOError, "Failed to find stream info");
+        return nullptr;
+    }
+
+    int stream_idx = av_find_best_stream(fmt_ctx, AVMEDIA_TYPE_VIDEO, -1, -1, nullptr, 0);
+    if (stream_idx < 0) {
+        Py_DECREF(results);
+        avformat_close_input(&fmt_ctx);
+        PyErr_SetString(PyExc_IOError, "No video stream found");
+        return nullptr;
+    }
+
+    AVStream *st = fmt_ctx->streams[stream_idx];
+    AVRational fr = av_guess_frame_rate(fmt_ctx, st, nullptr);
+    if (fr.num <= 0 || fr.den <= 0)
+        fr = st->avg_frame_rate;
+    if (fr.num <= 0 || fr.den <= 0)
+        fr = AVRational{30, 1};
+
+    const AVCodec *dec = avcodec_find_decoder(st->codecpar->codec_id);
+    if (!dec) {
+        Py_DECREF(results);
+        avformat_close_input(&fmt_ctx);
+        PyErr_SetString(PyExc_IOError, "No H264/HEVC decoder found");
+        return nullptr;
+    }
+
+    AVCodecContext *dec_ctx = avcodec_alloc_context3(dec);
+    avcodec_parameters_to_context(dec_ctx, st->codecpar);
+
+    CvrTargetBitcostCtx target_ctx;
+    memset(&target_ctx, 0, sizeof(target_ctx));
+    target_ctx.magic = CVR_TARGET_BITCOST_MAGIC;
+    target_ctx.enabled = 0;  /* Segment seek uses global PTS mapping; avoid local decoder frame-number pruning. */
+    target_ctx.max_frame = max_wanted;
+    target_ctx.frame_bitmap = nullptr;
+    target_ctx.tolerance = 1;
+    dec_ctx->opaque = &target_ctx;
+
+    AVDictionary *opts = nullptr;
+    av_dict_set(&opts, "skip_loop_filter", "all", 0);
+    dec_ctx->thread_count = thread_count;
+    dec_ctx->thread_type = thread_type;
+    dec_ctx->skip_loop_filter = AVDISCARD_ALL;
+    if (!export_pixels)
+        dec_ctx->skip_idct = AVDISCARD_ALL;
+
+    if (avcodec_open2(dec_ctx, dec, &opts) < 0) {
+        av_dict_free(&opts);
+        avcodec_free_context(&dec_ctx);
+        avformat_close_input(&fmt_ctx);
+        Py_DECREF(results);
+        PyErr_SetString(PyExc_IOError, "Failed to open codec");
+        return nullptr;
+    }
+    av_dict_free(&opts);
+
+    int64_t seek_ts = av_rescale_q((int64_t)(seek_frame < 0 ? 0 : seek_frame), av_inv_q(fr), st->time_base);
+    if (seek_ts < 0)
+        seek_ts = 0;
+    av_seek_frame(fmt_ctx, stream_idx, seek_ts, AVSEEK_FLAG_BACKWARD);
+    avcodec_flush_buffers(dec_ctx);
+
+    AVPacket *pkt = av_packet_alloc();
+    AVFrame *frame = av_frame_alloc();
+    int decoded_count = 0;
+    bool stop = false;
+
+    while (!stop && av_read_frame(fmt_ctx, pkt) >= 0) {
+        if (pkt->stream_index == stream_idx) {
+            int ret = avcodec_send_packet(dec_ctx, pkt);
+            while (ret >= 0) {
+                ret = avcodec_receive_frame(dec_ctx, frame);
+                if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF)
+                    break;
+                if (ret < 0) {
+                    Py_DECREF(results);
+                    results = nullptr;
+                    goto cleanup_segment;
+                }
+
+                int frame_idx = frame_idx_from_pts_or_count(frame, decoded_count, st->time_base, fr);
+                decoded_count++;
+
+                if (frame_idx > end_frame && frame_idx > max_wanted) {
+                    av_frame_unref(frame);
+                    stop = true;
+                    break;
+                }
+
+                auto it = wanted_counts.find(frame_idx);
+                if (it != wanted_counts.end() && it->second > 0) {
+                    PyObject *item = build_frame_dict(frame, frame_idx, dec_ctx, export_bitcost);
+                    if (!item) {
+                        Py_DECREF(results);
+                        results = nullptr;
+                        goto cleanup_segment;
+                    }
+                    if (export_pixels) {
+                        PyObject *px = convert_frame_to_bgr(frame, out_w, out_h);
+                        if (!px) {
+                            Py_DECREF(item);
+                            Py_DECREF(results);
+                            results = nullptr;
+                            goto cleanup_segment;
+                        }
+                        PyDict_SetItemString(item, "pixels", px);
+                        Py_DECREF(px);
+                    }
+                    for (int k = 0; k < it->second; ++k) {
+                        PyList_Append(results, item);
+                    }
+                    Py_DECREF(item);
+                    wanted_counts.erase(it);
+                    if (wanted_counts.empty())
+                        stop = true;
+                }
+
+                av_frame_unref(frame);
+                if (stop)
+                    break;
+            }
+        }
+        av_packet_unref(pkt);
+    }
+
+    if (!stop) {
+        avcodec_send_packet(dec_ctx, NULL);
+        while (1) {
+            int ret = avcodec_receive_frame(dec_ctx, frame);
+            if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF)
+                break;
+            if (ret < 0)
+                break;
+
+            int frame_idx = frame_idx_from_pts_or_count(frame, decoded_count, st->time_base, fr);
+            decoded_count++;
+
+            auto it = wanted_counts.find(frame_idx);
+            if (it != wanted_counts.end() && it->second > 0) {
+                PyObject *item = build_frame_dict(frame, frame_idx, dec_ctx, export_bitcost);
+                if (!item) {
+                    Py_DECREF(results);
+                    results = nullptr;
+                    goto cleanup_segment;
+                }
+                if (export_pixels) {
+                    PyObject *px = convert_frame_to_bgr(frame, out_w, out_h);
+                    if (!px) {
+                        Py_DECREF(item);
+                        Py_DECREF(results);
+                        results = nullptr;
+                        goto cleanup_segment;
+                    }
+                    PyDict_SetItemString(item, "pixels", px);
+                    Py_DECREF(px);
+                }
+                for (int k = 0; k < it->second; ++k) {
+                    PyList_Append(results, item);
+                }
+                Py_DECREF(item);
+                wanted_counts.erase(it);
+                if (wanted_counts.empty()) {
+                    av_frame_unref(frame);
+                    break;
+                }
+            }
+            av_frame_unref(frame);
+        }
+    }
+
+cleanup_segment:
+    av_frame_free(&frame);
+    av_packet_free(&pkt);
+    avcodec_free_context(&dec_ctx);
+    avformat_close_input(&fmt_ctx);
+
+    return results;
+}
+
 static PyMethodDef FastMethods[] = {
     {"read_video_fast", (PyCFunction)read_video_fast, METH_VARARGS | METH_KEYWORDS,
      "read_video_fast(path, thread_count=1, export_bitcost=0, thread_type='auto') -> list of frame metadata dicts"},
     {"read_video_fast_selected", (PyCFunction)read_video_fast_selected, METH_VARARGS | METH_KEYWORDS,
      "read_video_fast_selected(path, frame_ids, thread_count=1, export_bitcost=0, thread_type='auto', keyframe_pts=None, export_pixels=0, out_w=0, out_h=0) -> selected frame metadata dicts"},
+    {"read_video_fast_selected_segment", (PyCFunction)read_video_fast_selected_segment, METH_VARARGS | METH_KEYWORDS,
+     "read_video_fast_selected_segment(path, frame_ids, seek_frame, end_frame, thread_count=1, export_bitcost=0, thread_type='auto', export_pixels=0, out_w=0, out_h=0) -> selected frame metadata dicts"},
     {NULL, NULL, 0, NULL}
 };
 

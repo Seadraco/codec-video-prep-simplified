@@ -57,6 +57,10 @@ class LlavaCodecPreprocessConfig:
     avoid_keyframes: bool = True
     parallel_decode_cv_reader: bool = False
     canvas_format: str = "jpg"
+    decode_backend: str = "ffmpeg_native"
+    parallel_segments: int = 0
+    threads_per_segment: int = 4
+    segment_guard_frames: int = 30
 
     @classmethod
     def from_legacy_kwargs(
@@ -90,6 +94,10 @@ class LlavaCodecPreprocessConfig:
             avoid_keyframes=_as_bool(kwargs.get("codec_avoid_keyframes", True)),
             parallel_decode_cv_reader=_as_bool(kwargs.get("codec_parallel_decode_cv_reader", False)),
             canvas_format=str(kwargs.get("codec_canvas_format", "jpg")),
+            decode_backend=str(kwargs.get("codec_decode_backend", "ffmpeg_native")),
+            parallel_segments=int(kwargs.get("codec_parallel_segments", 0)),
+            threads_per_segment=int(kwargs.get("codec_threads_per_segment", 4)),
+            segment_guard_frames=int(kwargs.get("codec_segment_guard_frames", 30)),
         )
 
     def validate(self) -> None:
@@ -193,6 +201,10 @@ class LlavaOneVisionCodecPreprocessor:
                 readiness_norm_sum_threshold=float(cfg.readiness_norm_sum_threshold),
                 avoid_keyframes=bool(cfg.avoid_keyframes),
                 parallel_decode_cv_reader=bool(cfg.parallel_decode_cv_reader),
+                decode_backend=str(cfg.decode_backend),
+                parallel_segments=int(cfg.parallel_segments),
+                threads_per_segment=int(cfg.threads_per_segment),
+                segment_guard_frames=int(cfg.segment_guard_frames),
             )
             if out_dir.exists():
                 shutil.rmtree(out_dir)
