@@ -14,6 +14,7 @@ class PreinferConfig:
     images_per_group: int = 4
     patch: int = 14
     max_pixels: int = 153664
+    block_size: int = 2
     min_group_frames: int = 8
     max_group_frames: int = 64
     thread_type: str = "auto"
@@ -30,7 +31,7 @@ class PreinferConfig:
     # ---- misc ----
     save_mask_video: bool = False
     parallel_decode_cv_reader: bool = False
-    decode_backend: str = "ffmpeg_native"
+    decode_backend: str = "cv_reader_pixels"
     parallel_segments: int = 0
     threads_per_segment: int = 4
     segment_guard_frames: int = 30

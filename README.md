@@ -1,10 +1,10 @@
 # codec-video-prep
 
-Codec-aware video preprocessing for training and inference. Extracts codec-level bitcost information from H.264 / HEVC videos and turns it into patch-canvases ready for downstream vision models.
+Codec-aware video preprocessing for training and inference. Extracts codec-level bitcost information from **H.264 / HEVC / VP9** videos and turns it into patch-canvases ready for downstream vision models.
 
 ## What it does
 
-- **Patched FFmpeg decoder** – Instruments the H.264 / HEVC decoder to export per-macroblock (H.264) or per-CTU (HEVC) **bitcost** maps during decoding.
+- **Patched FFmpeg decoder** – Instruments the H.264 / HEVC / VP9 decoder to export per-macroblock (H.264) or per-CTU (HEVC) **bitcost** maps during decoding.
 - **Fast C++ extension** (`cv_reader_fast`) – Decodes video with loop-filter / IDCT skipped and optionally returns bitcost data as NumPy arrays.
 - **Readiness grouping** – Groups frames by compressibility (bitcost) so that hard-to-decode regions get more patches.
 - **Top-K patch selection** – Selects the most informative 2×2 patch blocks from each group and packs them into JPG/PNG canvases.
@@ -172,7 +172,7 @@ Each frame dict contains:
 | `frame_idx` | Frame index |
 | `pict_type` | `'I'`, `'P'` or `'B'` |
 | `width` / `height` | Frame resolution |
-| `codec_name` | Decoder name (`h264`, `hevc`, …) |
+| `codec_name` | Decoder name (`h264`, `hevc`, `vp9`, …) |
 | `bitcost` | Dict with MB/CTU bitcost arrays (when `export_bitcost=1`) |
 | `pixels` | `(H, W, 3)` uint8 BGR array (when `export_pixels=1`)
 
@@ -192,9 +192,10 @@ Each frame dict contains:
 ├── native/                           # C++ Python extension
 │   └── cv_reader_fast.cpp            # Fast decoder with bitcost + pixel export, segment seek API
 ├── ffmpeg_patch/                     # FFmpeg source patches
-│   ├── bitcost_only/                 # Pixel-capable patches (H.264 + HEVC, keeps full IDCT)
+│   ├── bitcost_only/                 # Pixel-capable patches (H.264 + HEVC + VP9, keeps full IDCT)
 │   │   ├── h264_cabac.c / h264_cavlc.c
 │   │   ├── hevcdec.c / hevcdec.h / hevc_refs.c
+│   │   ├── vp9.c / vp9dec.h / vp9shared.h
 │   │   └── h264_bitcost_only.patch
 │   └── full_skip/                    # Legacy skip-IDCT patches (faster, no pixel output)
 │       ├── h264_*.c

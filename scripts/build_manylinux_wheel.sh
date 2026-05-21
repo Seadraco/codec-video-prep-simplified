@@ -16,6 +16,8 @@ if [[ -n "$PIP_TRUSTED_HOST" ]]; then
   DOCKER_ENV+=("-e" "PIP_TRUSTED_HOST=$PIP_TRUSTED_HOST")
 fi
 DOCKER_ENV+=("-e" "REUSE_FFMPEG=$REUSE_FFMPEG")
+FFMPEG_BUILD_SCRIPT="${FFMPEG_BUILD_SCRIPT:-scripts/build_patched_ffmpeg.sh}"
+DOCKER_ENV+=("-e" "FFMPEG_BUILD_SCRIPT=$FFMPEG_BUILD_SCRIPT")
 
 docker run --rm \
   "${DOCKER_ENV[@]}" \
@@ -32,7 +34,7 @@ docker run --rm \
     if [[ \"\${REUSE_FFMPEG:-0}\" == \"1\" && -d build_ffmpeg_install/lib && -d src/codec_video_prep/libs ]]; then
       echo 'Reusing existing patched FFmpeg build.'
     else
-      bash scripts/build_patched_ffmpeg.sh
+      bash "$FFMPEG_BUILD_SCRIPT"
     fi
     /opt/python/$PY_TAG/bin/python -m build --wheel
     LD_LIBRARY_PATH=/io/build_ffmpeg_install/lib:/io/src/codec_video_prep/libs \

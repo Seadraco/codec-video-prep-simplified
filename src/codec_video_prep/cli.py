@@ -18,6 +18,8 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--images_per_group", type=int, default=4)
     ap.add_argument("--patch", type=int, default=14)
     ap.add_argument("--max_pixels", type=int, default=153664)
+    ap.add_argument("--block_size", type=int, default=2,
+                    help="Block size for patch grouping and scoring")
     ap.add_argument("--min_group_frames", type=int, default=8)
     ap.add_argument("--max_group_frames", type=int, default=64)
     ap.add_argument("--bitcost_grid", default="adaptive", choices=["sub", "mb", "ctu", "adaptive"])
@@ -48,7 +50,7 @@ def build_parser() -> argparse.ArgumentParser:
                     help="Save side-by-side mask visualization video")
     ap.add_argument("--parallel_decode_cv_reader", action="store_true",
                     help="Parallelize decode and cv_reader")
-    ap.add_argument("--decode_backend", default="ffmpeg_native",
+    ap.add_argument("--decode_backend", default="cv_reader_pixels",
                     choices=["ffmpeg_native", "cv_reader_pixels"],
                     help="Decode backend")
     ap.add_argument("--parallel_segments", type=int, default=0,

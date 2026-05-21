@@ -38,7 +38,7 @@ package_dir = {
 
 setup(
     name="codec-video-prep",
-    version="0.1.0",
+    version="0.2.1",
     description="Codec-aware video preprocessing for training and inference",
     python_requires=">=3.10",
     install_requires=[
