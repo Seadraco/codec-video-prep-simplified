@@ -234,24 +234,66 @@ def frame_is_bad(
     corrupt_g_thr: int = 180,
     corrupt_rb_thr: int = 90,
 ) -> bool:
-    """Unified bad-frame predicate used to avoid selecting blank/corrupted segments."""
-    if skip_black_frames and is_black_frame(frame_bgr, y_mean_thr=black_y_mean_thr, y_std_thr=black_y_std_thr):
-        return True
-    if is_solid_color_frame(
-        frame_bgr,
-        y_std_thr=solid_y_std_thr,
-        color_std_thr=solid_color_std_thr,
-        max_range_thr=solid_max_range_thr,
-    ):
-        return True
-    if skip_corrupt_frames and is_corrupted_green_frame(
-        frame_bgr,
-        green_frac_thr=corrupt_green_frac_thr,
-        g_thr=corrupt_g_thr,
-        rb_thr=corrupt_rb_thr,
-    ):
-        return True
-    return False
+    """Unified bad-frame predicate used to avoid selecting blank/corrupted segments.
+
+    Optimized: compute luma once, reuse channels, avoid redundant astype copies.
+    """
+    try:
+        if frame_bgr is None or frame_bgr.size == 0:
+            return True
+
+        # Compute luma once
+        y = _bgr_to_luma_u8(frame_bgr)
+        if y.size == 0:
+            return True
+
+        y_mean = float(y.mean())
+        y_std = float(y.std())
+
+        # Black frame check
+        if skip_black_frames and (y_mean <= float(black_y_mean_thr)) and (y_std <= float(black_y_std_thr)):
+            return True
+
+        # Solid color check (re-use y_std)
+        if frame_bgr.ndim == 3 and frame_bgr.shape[2] >= 3:
+            b = frame_bgr[:, :, 0]
+            g = frame_bgr[:, :, 1]
+            r = frame_bgr[:, :, 2]
+            b_std = float(b.std())
+            g_std = float(g.std())
+            r_std = float(r.std())
+            b_rng = float(b.max() - b.min())
+            g_rng = float(g.max() - g.min())
+            r_rng = float(r.max() - r.min())
+            if (
+                y_std <= float(solid_y_std_thr)
+                and b_std <= float(solid_color_std_thr)
+                and g_std <= float(solid_color_std_thr)
+                and r_std <= float(solid_color_std_thr)
+                and b_rng <= float(solid_max_range_thr)
+                and g_rng <= float(solid_max_range_thr)
+                and r_rng <= float(solid_max_range_thr)
+            ):
+                return True
+        else:
+            if (y_std <= float(solid_y_std_thr)) and ((float(y.max()) - float(y.min())) <= float(solid_max_range_thr)):
+                return True
+
+        # Corrupted green check (re-use b, g, r)
+        if skip_corrupt_frames and frame_bgr.ndim == 3 and frame_bgr.shape[2] >= 3:
+            mask = (g >= int(corrupt_g_thr)) & (r <= int(corrupt_rb_thr)) & (b <= int(corrupt_rb_thr))
+            if float(mask.mean()) >= float(corrupt_green_frac_thr):
+                return True
+            mg = float(g.mean())
+            mr = float(r.mean())
+            mb = float(b.mean())
+            sg = float(g.std())
+            if (mg > 120.0) and (mg - max(mr, mb) > 80.0) and (sg < 50.0):
+                return True
+
+        return False
+    except Exception:
+        return False
 
 
 def pad_to_multiple_of_bgr(frame_bgr: np.ndarray, base: int) -> Tuple[np.ndarray, Tuple[int, int]]:

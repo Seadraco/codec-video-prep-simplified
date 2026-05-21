@@ -28,6 +28,7 @@ from codec_selector.plugins.scorers.bitcost import bitcost_items_to_score_maps
 from codec_selector.plugins.selectors.topk_2x2_bitcost import process_group_topk_2x2
 from codec_selector.codec_patch_gop.utils import ensure_dir, sha1_8
 from codec_selector.codec_patch_gop.video_probe import ffprobe_keyframe_frame_ids
+from codec_selector.codec_patch_gop.frame_utils import frame_is_bad
 from codec_selector.codec_patch_gop.video_processor import cv_reader_fetch_bitcost
 
 
@@ -293,6 +294,13 @@ def run_bitcost_readiness(config: BitcostReadinessConfig) -> PipelineResult:
     timing["prepare_frames"] = elapsed_since(t0)
     h1, w1 = frames_bgr[0].shape[:2]
 
+    # Precompute good_mask for all frames to avoid repeated frame_is_bad checks in group loop
+    t0 = time.perf_counter()
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        all_good_masks = list(ex.map(lambda f: not frame_is_bad(f), frames_bgr))
+    timing["precompute_good_masks"] = elapsed_since(t0)
+
     if len(bitcost_items) != len(frame_ids):
         raise RuntimeError(f"bitcost fetch mismatch: {len(bitcost_items)} vs {len(frame_ids)}")
 
@@ -378,6 +386,7 @@ def run_bitcost_readiness(config: BitcostReadinessConfig) -> PipelineResult:
         group_frames = list(frames_bgr[start:end])
         group_scores = list(score_maps[start:end])
         group_block_scores = list(block_scores_all[start:end])
+        group_good_mask = all_good_masks[start:end]
         group_meta, keep_patch_mask, images_rgb, patch_pos, src_pos, _img_ptr = process_group_topk_2x2(
             group_idx=int(group_idx),
             group_frame_ids=group_frame_ids,
@@ -387,6 +396,7 @@ def run_bitcost_readiness(config: BitcostReadinessConfig) -> PipelineResult:
             patch=int(cfg.patch),
             block_size=int(cfg.block_size),
             group_block_scores=group_block_scores,
+            good_mask=group_good_mask,
         )
 
         patch_pos_global = patch_pos.copy()

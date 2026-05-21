@@ -10,7 +10,7 @@ from codec_selector.core.registry import selectors
 from codec_selector.codec_patch_gop.frame_utils import frame_is_bad
 from codec_selector.codec_patch_gop.patch_utils import (
     block_to_patches,
-    extract_patch_rgb,
+    extract_patch_bgr,
     iter_blocks_in_raster,
     pack_patches_to_canvases,
 )
@@ -26,6 +26,7 @@ def process_group_topk_2x2(
     patch: int,
     block_size: int = 2,
     group_block_scores: Optional[List[np.ndarray]] = None,
+    good_mask: Optional[List[bool]] = None,
 ) -> Tuple[Dict[str, Any], np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     p = int(patch)
     b = int(max(1, int(block_size)))
@@ -40,7 +41,8 @@ def process_group_topk_2x2(
     pz = np.zeros((p, p, 3), dtype=np.uint8)
     keep_patch_mask = np.zeros((len(group_frames_bgr), hb, wb), dtype=np.uint8)
 
-    good_mask = [not frame_is_bad(fr) for fr in group_frames_bgr]
+    if good_mask is None:
+        good_mask = [not frame_is_bad(fr) for fr in group_frames_bgr]
     if not good_mask[0]:
         for swap_i in range(1, len(good_mask)):
             if good_mask[swap_i]:
@@ -59,11 +61,11 @@ def process_group_topk_2x2(
     src_pos_list: List[List[int]] = []
     src_fid_list: List[int] = []
 
-    iframe_rgb = group_frames_bgr[0][:, :, ::-1]
+    iframe_bgr = group_frames_bgr[0]
     iframe_fid = int(group_frame_ids[0])
     for bh, bw_idx in iter_blocks_in_raster(hb, wb, block_size=b):
         for ph, pw in block_to_patches(bh, bw_idx, block_size=b):
-            patches_list.append(extract_patch_rgb(iframe_rgb, ph, pw, patch=p))
+            patches_list.append(extract_patch_bgr(iframe_bgr, ph, pw, patch=p))
             src_pos_list.append([iframe_fid, int(ph), int(pw)])
             src_fid_list.append(iframe_fid)
             keep_patch_mask[0, int(ph), int(pw)] = 1
@@ -114,11 +116,11 @@ def process_group_topk_2x2(
     for t in range(1, len(group_frames_bgr)):
         if not good_mask[t]:
             continue
-        fr_rgb = group_frames_bgr[t][:, :, ::-1]
+        fr_bgr = group_frames_bgr[t]
         pfid = int(group_frame_ids[t])
         for bh_sel, bw_sel in selected_blocks_by_frame.get(t, []):
             for ph, pw in block_to_patches(bh_sel, bw_sel, block_size=b):
-                patches_list.append(extract_patch_rgb(fr_rgb, ph, pw, patch=p))
+                patches_list.append(extract_patch_bgr(fr_bgr, ph, pw, patch=p))
                 src_pos_list.append([pfid, int(ph), int(pw)])
                 src_fid_list.append(pfid)
                 keep_patch_mask[t, int(ph), int(pw)] = 1

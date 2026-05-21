@@ -52,6 +52,14 @@ def extract_patch_rgb(frame_rgb: np.ndarray, ph: int, pw: int, patch: int = 16) 
     return frame_rgb[y0:y0 + p, x0:x0 + p, :]
 
 
+def extract_patch_bgr(frame_bgr: np.ndarray, ph: int, pw: int, patch: int = 16) -> np.ndarray:
+    """Extract a single patch from BGR frame and convert to RGB."""
+    p = int(patch)
+    y0 = int(ph) * p
+    x0 = int(pw) * p
+    return frame_bgr[y0:y0 + p, x0:x0 + p, ::-1]
+
+
 def pack_patches_to_canvases(
     patches: np.ndarray,
     hb: int,
@@ -86,7 +94,7 @@ def pack_patches_to_canvases(
     placement_order = str(placement_order).lower().strip()
     if placement_order != "wh_raster" and (hb % b != 0 or wb % b != 0):
         raise ValueError(f"hb/wb must be divisible by block_size={b}, got hb={hb} wb={wb}")
-    
+
     if patches.size == 0:
         images = np.zeros((0, hb * p, wb * p, 3), dtype=np.uint8)
         patch_pos = np.zeros((0, 3), dtype=np.int32)
@@ -99,33 +107,44 @@ def pack_patches_to_canvases(
     num_images = int(patches.shape[0] // S_full)
     H = hb * p
     W = wb * p
-    images = np.zeros((num_images, H, W, 3), dtype=np.uint8)
+
+    if placement_order == "wh_raster":
+        images = patches.reshape(num_images, hb, wb, p, p, 3) \
+                        .transpose(0, 1, 3, 2, 4, 5) \
+                        .reshape(num_images, H, W, 3)
+        ph = np.repeat(np.arange(hb, dtype=np.int32), wb)
+        pw = np.tile(np.arange(wb, dtype=np.int32), hb)
+    else:
+        # block_raster: (num_images, S_full, p, p, 3)
+        # -> (num_images, hb//b, wb//b, b, b, p, p, 3)
+        # -> (num_images, hb//b, b, wb//b, b, p, p, 3)
+        # -> (num_images, hb, wb, p, p, 3)
+        # -> (num_images, hb, p, wb, p, 3)
+        # -> (num_images, H, W, 3)
+        images = patches.reshape(num_images, hb // b, wb // b, b, b, p, p, 3) \
+                        .transpose(0, 1, 3, 2, 4, 5, 6, 7) \
+                        .reshape(num_images, hb, wb, p, p, 3) \
+                        .transpose(0, 1, 3, 2, 4, 5) \
+                        .reshape(num_images, H, W, 3)
+
+        # Precompute ph, pw for block_raster order
+        ph = np.zeros(S_full, dtype=np.int32)
+        pw = np.zeros(S_full, dtype=np.int32)
+        idx_c = 0
+        for bh in range(hb // b):
+            for bw in range(wb // b):
+                for dh in range(b):
+                    for dw in range(b):
+                        ph[idx_c] = bh * b + dh
+                        pw[idx_c] = bw * b + dw
+                        idx_c += 1
+
     patch_pos = np.zeros((patches.shape[0], 3), dtype=np.int32)
+    patch_pos[:, 0] = np.repeat(np.arange(num_images, dtype=np.int32), S_full)
+    patch_pos[:, 1] = np.tile(ph, num_images)
+    patch_pos[:, 2] = np.tile(pw, num_images)
+    img_ptr = np.arange(0, num_images + 1, dtype=np.int32) * int(S_full)
 
-    idx = 0
-    for img_i in range(num_images):
-        if placement_order == "wh_raster":
-            # Raster order by patch position (h, w)
-            for ph in range(hb):
-                for pw in range(wb):
-                    y0 = int(ph) * p
-                    x0 = int(pw) * p
-                    images[img_i, y0:y0 + p, x0:x0 + p, :] = patches[idx]
-                    patch_pos[idx, :] = (int(img_i), int(ph), int(pw))
-                    idx += 1
-        else:
-            # Default: block raster order.
-            for bh in range(hb // b):
-                for bw in range(wb // b):
-                    coords = block_to_patches(bh, bw, block_size=b)
-                    for (ph, pw) in coords:
-                        y0 = int(ph) * p
-                        x0 = int(pw) * p
-                        images[img_i, y0:y0 + p, x0:x0 + p, :] = patches[idx]
-                        patch_pos[idx, :] = (int(img_i), int(ph), int(pw))
-                        idx += 1
-
-    img_ptr = (np.arange(0, num_images + 1, dtype=np.int32) * int(S_full)).astype(np.int32)
     return images, patch_pos, img_ptr
 
 
