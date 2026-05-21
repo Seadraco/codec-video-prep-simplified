@@ -27,7 +27,7 @@ from codec_selector.plugins.samplers.basic import sample_frames
 from codec_selector.plugins.scorers.bitcost import bitcost_items_to_score_maps
 from codec_selector.plugins.selectors.topk_2x2_bitcost import process_group_topk_2x2
 from codec_selector.codec_patch_gop.utils import ensure_dir, sha1_8
-from codec_selector.codec_patch_gop.video_probe import ffprobe_keyframe_frame_ids
+from codec_selector.codec_patch_gop.video_probe import ffprobe_keyframe_frame_ids, mp4_keyframe_frame_ids
 from codec_selector.codec_patch_gop.frame_utils import frame_is_bad
 from codec_selector.codec_patch_gop.video_processor import cv_reader_fetch_bitcost
 
@@ -232,7 +232,9 @@ def run_bitcost_readiness(config: BitcostReadinessConfig) -> PipelineResult:
         sampling_debug["avoid_keyframes_note"] = "ignored for all_frames sampling"
     elif bool(cfg.avoid_keyframes):
         t0 = time.perf_counter()
-        keyframe_ids = ffprobe_keyframe_frame_ids(str(cfg.video), fps=float(meta.fps), total_frames=int(meta.total_frames))
+        keyframe_ids = mp4_keyframe_frame_ids(str(cfg.video))
+        if keyframe_ids is None:
+            keyframe_ids = ffprobe_keyframe_frame_ids(str(cfg.video), fps=float(meta.fps), total_frames=int(meta.total_frames))
         frame_ids = _shift_frame_ids_off_keyframes(
             frame_ids=frame_ids,
             keyframe_ids=keyframe_ids,

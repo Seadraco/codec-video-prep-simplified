@@ -16,7 +16,7 @@ if [[ -n "$PIP_TRUSTED_HOST" ]]; then
   DOCKER_ENV+=("-e" "PIP_TRUSTED_HOST=$PIP_TRUSTED_HOST")
 fi
 DOCKER_ENV+=("-e" "REUSE_FFMPEG=$REUSE_FFMPEG")
-FFMPEG_BUILD_SCRIPT="${FFMPEG_BUILD_SCRIPT:-scripts/build_patched_ffmpeg.sh}"
+FFMPEG_BUILD_SCRIPT="${FFMPEG_BUILD_SCRIPT:-build_pixel_ffmpeg.sh}"
 DOCKER_ENV+=("-e" "FFMPEG_BUILD_SCRIPT=$FFMPEG_BUILD_SCRIPT")
 
 docker run --rm \

@@ -4,8 +4,10 @@
 
 import json
 import math
+import struct
 import subprocess
-from typing import Tuple, List, Dict, Any
+from pathlib import Path
+from typing import Tuple, List, Dict, Any, Optional
 import numpy as np
 import cv2
 
@@ -114,6 +116,127 @@ def auto_max_total_patches(
         "max_total_patches": int(max_total),
     }
     return max_total, dbg
+
+
+def _read_boxes(data: bytes) -> List[Tuple[str, bytes]]:
+    """Parse MP4 boxes from byte string. Returns list of (type, box_data)."""
+    boxes = []
+    i = 0
+    n = len(data)
+    while i + 8 <= n:
+        size = struct.unpack(">I", data[i:i + 4])[0]
+        box_type = data[i + 4:i + 8].decode("ascii", errors="ignore")
+        if size == 1:
+            if i + 16 > n:
+                break
+            size = struct.unpack(">Q", data[i + 8:i + 16])[0]
+            box_data = data[i + 16:i + size]
+            boxes.append((box_type, box_data))
+            i += size
+        elif size == 0:
+            box_data = data[i + 8:]
+            boxes.append((box_type, box_data))
+            break
+        else:
+            box_data = data[i + 8:i + size]
+            boxes.append((box_type, box_data))
+            i += size
+    return boxes
+
+
+def _find_box(data: bytes, box_type: str) -> Optional[bytes]:
+    for t, d in _read_boxes(data):
+        if t == box_type:
+            return d
+    return None
+
+
+def _is_video_trak(trak_data: bytes) -> bool:
+    mdia = _find_box(trak_data, "mdia")
+    if not mdia:
+        return False
+    hdlr = _find_box(mdia, "hdlr")
+    if not hdlr or len(hdlr) < 12:
+        return False
+    # hdlr full box: version(1)+flags(3)+pre_defined(4)+handler_type(4)...
+    handler_type = hdlr[8:12].decode("ascii", errors="ignore")
+    return handler_type == "vide"
+
+
+def mp4_keyframe_frame_ids(video_path: str) -> Optional[List[int]]:
+    """Fast keyframe extraction for MP4/MOV by parsing the stss box directly.
+
+    Returns 0-based frame ids sorted and deduplicated, or None on failure.
+    This avoids spawning ffprobe and works entirely in-process.
+    """
+    try:
+        suffix = Path(video_path).suffix.lower()
+        if suffix not in (".mp4", ".m4v", ".mov", ".m4a", ".3gp", ".3g2"):
+            return None
+
+        with open(video_path, "rb") as f:
+            # Scan top-level boxes to find moov
+            while True:
+                header = f.read(8)
+                if len(header) < 8:
+                    return None
+                size = struct.unpack(">I", header[:4])[0]
+                box_type = header[4:8].decode("ascii", errors="ignore")
+                if box_type == "moov":
+                    if size == 1:
+                        ext = f.read(8)
+                        size = struct.unpack(">Q", ext)[0]
+                        moov_data = f.read(size - 16)
+                    else:
+                        moov_data = f.read(size - 8)
+                    break
+                if size == 0:
+                    return None
+                if size == 1:
+                    f.seek(8, 1)
+                    f.seek(size - 16, 1)
+                else:
+                    f.seek(size - 8, 1)
+            else:
+                return None
+
+            # Find first video trak and its stss
+            for t, trak_data in _read_boxes(moov_data):
+                if t != "trak":
+                    continue
+                if not _is_video_trak(trak_data):
+                    continue
+
+                mdia = _find_box(trak_data, "mdia")
+                if not mdia:
+                    continue
+                minf = _find_box(mdia, "minf")
+                if not minf:
+                    continue
+                stbl = _find_box(minf, "stbl")
+                if not stbl:
+                    continue
+                stss_data = _find_box(stbl, "stss")
+                if not stss_data or len(stss_data) < 8:
+                    continue
+
+                # stss full box: version(1)+flags(3) + entry_count(4) + entries
+                entry_count = struct.unpack(">I", stss_data[4:8])[0]
+                expected = 8 + entry_count * 4
+                if len(stss_data) < expected:
+                    continue
+
+                sample_numbers = struct.unpack(
+                    f">{entry_count}I", stss_data[8:expected]
+                )
+                # Convert 1-based sample numbers -> 0-based frame ids
+                frame_ids = sorted({int(s) - 1 for s in sample_numbers})
+                if frame_ids and frame_ids[0] != 0:
+                    frame_ids = [0] + frame_ids
+                return frame_ids
+    except Exception:
+        pass
+    return None
 
 
 def ffprobe_keyframe_frame_ids(video_path: str, fps: float, total_frames: int) -> List[int]:
