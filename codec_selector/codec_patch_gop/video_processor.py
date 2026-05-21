@@ -206,7 +206,10 @@ def cv_reader_fetch_bitcost(
     grid = str(bitcost_grid).lower().strip()
     codec_name = ffprobe_video_codec_name(str(video_path))
     if grid in {"adaptive", "auto"}:
-        grid = "ctu" if codec_name == "hevc" else "mb"
+        if codec_name == "hevc" or codec_name == "vp9":
+            grid = "ctu"
+        else:
+            grid = "mb"
     wanted_keys = {
         "sub": {"sub_mb_bit_cost"},
         "mb": {"mb_bit_cost"},
@@ -308,8 +311,8 @@ def bitcost_item_to_score_map(item: Dict[str, Any], out_h: int, out_w: int,
     effective_grid = grid
     if grid == "adaptive" or grid == "auto":
         codec = str(codec_name).lower().strip() if codec_name else ""
-        if codec == "hevc" or codec == "h265":
-            # H.265/HEVC: use CTU (64x64) as "macroblock" equivalent
+        if codec == "hevc" or codec == "h265" or codec == "vp9":
+            # H.265/HEVC and VP9: use CTU/SB (64x64) as "macroblock" equivalent
             effective_grid = "ctu"
         else:
             # H.264/AVC: use MB (16x16)

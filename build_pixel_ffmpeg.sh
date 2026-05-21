@@ -19,11 +19,14 @@ cp "$PATCHDIR"/h264_cabac.c libavcodec/
 cp "$PATCHDIR"/hevcdec.c libavcodec/
 cp "$PATCHDIR"/hevcdec.h libavcodec/
 cp "$PATCHDIR"/hevc_refs.c libavcodec/
+cp "$PATCHDIR"/vp9.c libavcodec/
+cp "$PATCHDIR"/vp9shared.h libavcodec/
+cp "$PATCHDIR"/vp9dec.h libavcodec/
 
 # Apply header/struct patch for bitcost_buf (H.264 only; HEVC structs are in hevcdec.h)
 patch -p1 < "$PATCHDIR/h264_bitcost_only.patch"
 
-./configure   --prefix="$INSTALL"   --enable-shared   --disable-static   --disable-programs   --disable-doc   --disable-debug   --enable-avcodec   --enable-avformat   --enable-avutil   --enable-swresample   --enable-swscale   --enable-protocol=file   --enable-demuxer=mov   --enable-demuxer=matroska   --enable-demuxer=h264   --enable-demuxer=hevc   --enable-parser=h264   --enable-parser=hevc   --enable-decoder=h264   --enable-decoder=hevc
+./configure   --prefix="$INSTALL"   --enable-shared   --disable-static   --disable-programs   --disable-doc   --disable-debug   --enable-avcodec   --enable-avformat   --enable-avutil   --enable-swresample   --enable-swscale   --enable-protocol=file   --enable-demuxer=mov   --enable-demuxer=matroska   --enable-demuxer=h264   --enable-demuxer=hevc   --enable-parser=h264   --enable-parser=hevc   --enable-decoder=h264   --enable-decoder=hevc   --enable-decoder=vp9
 
 make -j"$(nproc)"
 make install

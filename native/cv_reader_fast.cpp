@@ -39,6 +39,8 @@ extern "C" {
 #define H264_MB_BIT_COST_MAP_VERSION 2
 #define HEVC_CTU_BIT_COST_MAP_MAGIC  0x48435455U   /* MKBETAG('H','C','T','U') */
 #define HEVC_CTU_BIT_COST_MAP_VERSION 2
+#define VP9_SB_BIT_COST_MAP_MAGIC    0x56503953U   /* MKBETAG('V','P','9','S') */
+#define VP9_SB_BIT_COST_MAP_VERSION  1
 #define CVR_TARGET_BITCOST_MAGIC     0x43565254U   /* MKBETAG('C','V','R','T') */
 
 #pragma pack(push, 1)
@@ -64,6 +66,17 @@ typedef struct HevcCtuBitCostMap {
     int32_t  sub_height;
     int32_t  sub_stride;
 } HevcCtuBitCostMap;
+
+typedef struct Vp9SbBitCostMap {
+    uint32_t magic;
+    int32_t  version;
+    int32_t  sb_width;
+    int32_t  sb_height;
+    int32_t  sb_stride;
+    int32_t  sub_width;
+    int32_t  sub_height;
+    int32_t  sub_stride;
+} Vp9SbBitCostMap;
 #pragma pack(pop)
 
 typedef struct CvrTargetBitcostCtx {
@@ -90,6 +103,14 @@ static const float *hevc_sub_costs_ptr(const HevcCtuBitCostMap *map) {
     return (const float *)(hevc_ctu_costs_ptr(map) + (size_t)map->ctb_stride * map->ctb_height);
 }
 
+static const int32_t *vp9_sb_costs_ptr(const Vp9SbBitCostMap *map) {
+    return (const int32_t *)((const uint8_t *)map + sizeof(Vp9SbBitCostMap));
+}
+
+static const float *vp9_sub_costs_ptr(const Vp9SbBitCostMap *map) {
+    return (const float *)(vp9_sb_costs_ptr(map) + (size_t)map->sb_stride * map->sb_height);
+}
+
 static int cvr_bitcost_diag_enabled_cpp()
 {
     const char *v = getenv("CVR_BITCOST_DIAG");
@@ -107,8 +128,18 @@ static int cvr_bitcost_map_is_valid(AVFrame *frame)
         map->version != H264_MB_BIT_COST_MAP_VERSION) {
         const HevcCtuBitCostMap *hevc_map = (const HevcCtuBitCostMap *)frame->opaque_ref->data;
         if (hevc_map->magic != HEVC_CTU_BIT_COST_MAP_MAGIC ||
-            hevc_map->version != HEVC_CTU_BIT_COST_MAP_VERSION)
-            return 0;
+            hevc_map->version != HEVC_CTU_BIT_COST_MAP_VERSION) {
+            const Vp9SbBitCostMap *vp9_map = (const Vp9SbBitCostMap *)frame->opaque_ref->data;
+            if (vp9_map->magic != VP9_SB_BIT_COST_MAP_MAGIC ||
+                vp9_map->version != VP9_SB_BIT_COST_MAP_VERSION)
+                return 0;
+            size_t sb_count = (size_t)vp9_map->sb_stride * vp9_map->sb_height;
+            size_t sub_count = (size_t)vp9_map->sub_stride * vp9_map->sub_height;
+            size_t expect_sz = sizeof(Vp9SbBitCostMap) +
+                               sb_count * sizeof(int32_t) +
+                               sub_count * sizeof(float);
+            return (size_t)frame->opaque_ref->size >= expect_sz;
+        }
         size_t ctu_count = (size_t)hevc_map->ctb_stride * hevc_map->ctb_height;
         size_t sub_count = (size_t)hevc_map->sub_stride * hevc_map->sub_height;
         size_t expect_sz = sizeof(HevcCtuBitCostMap) +
@@ -139,11 +170,21 @@ static int cvr_bitcost_map_has_nonzero_mb(AVFrame *frame)
         }
     } else {
         const HevcCtuBitCostMap *hevc_map = (const HevcCtuBitCostMap *)frame->opaque_ref->data;
-        const int32_t *ctu = hevc_ctu_costs_ptr(hevc_map);
-        size_t ctu_count = (size_t)hevc_map->ctb_stride * hevc_map->ctb_height;
-        for (size_t i = 0; i < ctu_count; ++i) {
-            if (ctu[i] != 0)
-                return 1;
+        if (hevc_map->magic == HEVC_CTU_BIT_COST_MAP_MAGIC) {
+            const int32_t *ctu = hevc_ctu_costs_ptr(hevc_map);
+            size_t ctu_count = (size_t)hevc_map->ctb_stride * hevc_map->ctb_height;
+            for (size_t i = 0; i < ctu_count; ++i) {
+                if (ctu[i] != 0)
+                    return 1;
+            }
+        } else {
+            const Vp9SbBitCostMap *vp9_map = (const Vp9SbBitCostMap *)frame->opaque_ref->data;
+            const int32_t *sb = vp9_sb_costs_ptr(vp9_map);
+            size_t sb_count = (size_t)vp9_map->sb_stride * vp9_map->sb_height;
+            for (size_t i = 0; i < sb_count; ++i) {
+                if (sb[i] != 0)
+                    return 1;
+            }
         }
     }
     return 0;
@@ -291,6 +332,67 @@ extract_hevc_bitcost(AVFrame *frame)
 }
 
 static PyObject *
+extract_vp9_bitcost(AVFrame *frame)
+{
+    if (!frame->opaque_ref || !frame->opaque_ref->data)
+        Py_RETURN_NONE;
+
+    if ((size_t)frame->opaque_ref->size < sizeof(Vp9SbBitCostMap))
+        Py_RETURN_NONE;
+
+    const Vp9SbBitCostMap *map = (const Vp9SbBitCostMap *)frame->opaque_ref->data;
+
+    if (map->magic != VP9_SB_BIT_COST_MAP_MAGIC ||
+        map->version != VP9_SB_BIT_COST_MAP_VERSION)
+        Py_RETURN_NONE;
+
+    size_t sb_count  = (size_t)map->sb_stride  * map->sb_height;
+    size_t sub_count = (size_t)map->sub_stride * map->sub_height;
+    size_t expect_sz = sizeof(Vp9SbBitCostMap)
+                        + sb_count  * sizeof(int32_t)
+                        + sub_count * sizeof(float);
+
+    if ((size_t)frame->opaque_ref->size < expect_sz)
+        Py_RETURN_NONE;
+
+    const int32_t *sb_costs  = vp9_sb_costs_ptr(map);
+    const float   *sub_costs = vp9_sub_costs_ptr(map);
+
+    npy_intp sb_dims[2]  = {map->sb_height,  map->sb_stride};
+    npy_intp sub_dims[2] = {map->sub_height, map->sub_stride};
+
+    PyObject *sb_arr  = make_numpy_copy(2, sb_dims,  NPY_INT32,
+                                        sb_costs,  sb_count * sizeof(int32_t));
+    PyObject *sub_arr = make_numpy_copy(2, sub_dims, NPY_FLOAT32,
+                                        sub_costs, sub_count * sizeof(float));
+    if (!sb_arr || !sub_arr) {
+        Py_XDECREF(sb_arr);
+        Py_XDECREF(sub_arr);
+        return nullptr;
+    }
+
+    PyObject *dict = PyDict_New();
+    if (!dict) {
+        Py_DECREF(sb_arr);
+        Py_DECREF(sub_arr);
+        return nullptr;
+    }
+
+    PyDict_SetItemString(dict, "ctu_bit_cost",  sb_arr);
+    PyDict_SetItemString(dict, "sub_mb_bit_cost", sub_arr);
+    PyDict_SetItemString(dict, "ctb_width",     PyLong_FromLong(map->sb_width));
+    PyDict_SetItemString(dict, "ctb_height",    PyLong_FromLong(map->sb_height));
+    PyDict_SetItemString(dict, "ctb_stride",    PyLong_FromLong(map->sb_stride));
+    PyDict_SetItemString(dict, "sub_width",    PyLong_FromLong(map->sub_width));
+    PyDict_SetItemString(dict, "sub_height",   PyLong_FromLong(map->sub_height));
+    PyDict_SetItemString(dict, "sub_stride",   PyLong_FromLong(map->sub_stride));
+
+    Py_DECREF(sb_arr);
+    Py_DECREF(sub_arr);
+    return dict;
+}
+
+static PyObject *
 extract_bitcost(AVFrame *frame)
 {
     if (!frame->opaque_ref || !frame->opaque_ref->data)
@@ -302,6 +404,8 @@ extract_bitcost(AVFrame *frame)
         return extract_h264_bitcost(frame);
     if (magic == HEVC_CTU_BIT_COST_MAP_MAGIC)
         return extract_hevc_bitcost(frame);
+    if (magic == VP9_SB_BIT_COST_MAP_MAGIC)
+        return extract_vp9_bitcost(frame);
     Py_RETURN_NONE;
 }
 
@@ -456,7 +560,7 @@ read_video_fast(PyObject *self, PyObject *args, PyObject *kwargs)
     const AVCodec *dec = avcodec_find_decoder(st->codecpar->codec_id);
     if (!dec) {
         avformat_close_input(&fmt_ctx);
-        PyErr_SetString(PyExc_IOError, "No H264/HEVC decoder found");
+        PyErr_SetString(PyExc_IOError, "No H264/HEVC/VP9 decoder found");
         return nullptr;
     }
 
@@ -645,7 +749,7 @@ read_video_fast_selected(PyObject *self, PyObject *args, PyObject *kwargs)
     if (!dec) {
         Py_DECREF(results);
         avformat_close_input(&fmt_ctx);
-        PyErr_SetString(PyExc_IOError, "No H264/HEVC decoder found");
+        PyErr_SetString(PyExc_IOError, "No H264/HEVC/VP9 decoder found");
         return nullptr;
     }
 
@@ -1102,7 +1206,7 @@ read_video_fast_selected_segment(PyObject *self, PyObject *args, PyObject *kwarg
     if (!dec) {
         Py_DECREF(results);
         avformat_close_input(&fmt_ctx);
-        PyErr_SetString(PyExc_IOError, "No H264/HEVC decoder found");
+        PyErr_SetString(PyExc_IOError, "No H264/HEVC/VP9 decoder found");
         return nullptr;
     }
 
