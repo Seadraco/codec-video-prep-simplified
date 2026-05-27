@@ -22,6 +22,12 @@ def build_parser() -> argparse.ArgumentParser:
                     help="Block size for patch grouping and scoring")
     ap.add_argument("--min_group_frames", type=int, default=8)
     ap.add_argument("--max_group_frames", type=int, default=64)
+    ap.add_argument("--thread_type", default="slice", choices=["auto", "slice", "frame"],
+                    help="FFmpeg decoder thread type for cv_reader_fast")
+    ap.add_argument("--thread_count", type=int, default=16,
+                    help="FFmpeg decoder thread count for cv_reader_fast")
+    ap.add_argument("--disable_target_only", action="store_true",
+                    help="Disable target-only bitcost pruning for legacy-compatible bitcost maps")
     ap.add_argument("--bitcost_grid", default="adaptive", choices=["sub", "mb", "ctu", "adaptive"])
     ap.add_argument("--canvas_format", default="jpg", choices=["jpg", "png", "npy"])
     ap.add_argument("--grouping_mode", default="readiness", choices=["fixed", "readiness"],

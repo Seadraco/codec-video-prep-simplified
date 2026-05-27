@@ -17,8 +17,9 @@ class PreinferConfig:
     block_size: int = 2
     min_group_frames: int = 8
     max_group_frames: int = 64
-    thread_type: str = "auto"
+    thread_type: str = "slice"
     thread_count: int = 16
+    disable_target_only: bool = False
     bitcost_grid: str = "adaptive"
     canvas_format: str = "jpg"
     avoid_keyframes: bool = True

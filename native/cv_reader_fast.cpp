@@ -518,7 +518,7 @@ read_video_fast(PyObject *self, PyObject *args, PyObject *kwargs)
     const char *path = nullptr;
     int thread_count = 1;
     int export_bitcost = 0;
-    const char *thread_type_str = "auto";
+    const char *thread_type_str = "slice";
 
     static const char *kwlist[] = {"path", "thread_count", "export_bitcost", "thread_type", nullptr};
     if (!PyArg_ParseTupleAndKeywords(args, kwargs, "s|iis",
@@ -527,7 +527,7 @@ read_video_fast(PyObject *self, PyObject *args, PyObject *kwargs)
                                      &thread_type_str))
         return nullptr;
 
-    int thread_type = FF_THREAD_FRAME;
+    int thread_type = FF_THREAD_SLICE;
     if (strcmp(thread_type_str, "slice") == 0) {
         thread_type = FF_THREAD_SLICE;
     } else if (strcmp(thread_type_str, "frame") == 0) {
@@ -653,7 +653,7 @@ read_video_fast_selected(PyObject *self, PyObject *args, PyObject *kwargs)
     PyObject *frame_ids_obj = nullptr;
     int thread_count = 1;
     int export_bitcost = 0;
-    const char *thread_type_str = "auto";
+    const char *thread_type_str = "slice";
 
     PyObject *keyframe_pts_obj = nullptr;
     int export_pixels = 0;
@@ -713,7 +713,7 @@ read_video_fast_selected(PyObject *self, PyObject *args, PyObject *kwargs)
     if (wanted_counts.empty())
         return results;
 
-    int thread_type = FF_THREAD_FRAME;
+    int thread_type = FF_THREAD_SLICE;
     if (strcmp(thread_type_str, "slice") == 0) {
         thread_type = FF_THREAD_SLICE;
     } else if (strcmp(thread_type_str, "frame") == 0) {
@@ -1118,7 +1118,7 @@ read_video_fast_selected_segment(PyObject *self, PyObject *args, PyObject *kwarg
     int end_frame = -1;
     int thread_count = 1;
     int export_bitcost = 0;
-    const char *thread_type_str = "auto";
+    const char *thread_type_str = "slice";
     int export_pixels = 0;
     int out_w = 0;
     int out_h = 0;
@@ -1164,7 +1164,7 @@ read_video_fast_selected_segment(PyObject *self, PyObject *args, PyObject *kwarg
     if (end_frame < 0)
         end_frame = max_wanted;
 
-    int thread_type = FF_THREAD_FRAME;
+    int thread_type = FF_THREAD_SLICE;
     if (strcmp(thread_type_str, "slice") == 0) {
         thread_type = FF_THREAD_SLICE;
     } else if (strcmp(thread_type_str, "frame") == 0) {

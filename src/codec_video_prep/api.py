@@ -31,9 +31,10 @@ def _configure_native_threads(config: PreinferConfig) -> None:
     thread_type = str(config.thread_type).lower().strip()
     if thread_type and thread_type != "auto":
         os.environ["CV_READER_FAST_THREAD_TYPE"] = thread_type
-    else:
-        os.environ.pop("CV_READER_FAST_THREAD_TYPE", None)
+    # Preserve an existing CV_READER_FAST_THREAD_TYPE when thread_type=auto.
     os.environ["CV_READER_FAST_THREAD_COUNT"] = str(int(config.thread_count))
+    if bool(config.disable_target_only):
+        os.environ["CVR_DISABLE_TARGET_ONLY"] = "1"
 
 
 def run_preinfer(
@@ -47,6 +48,9 @@ def run_preinfer(
     block_size: int = 2,
     min_group_frames: int = 8,
     max_group_frames: int = 64,
+    thread_type: str = "slice",
+    thread_count: int = 16,
+    disable_target_only: bool = False,
     bitcost_grid: str = "adaptive",
     canvas_format: str = "jpg",
     grouping_mode: str = "readiness",
@@ -75,6 +79,9 @@ def run_preinfer(
         block_size=block_size,
         min_group_frames=min_group_frames,
         max_group_frames=max_group_frames,
+        thread_type=thread_type,
+        thread_count=thread_count,
+        disable_target_only=disable_target_only,
         bitcost_grid=bitcost_grid,
         canvas_format=canvas_format,
         grouping_mode=grouping_mode,
