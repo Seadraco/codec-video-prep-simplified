@@ -24,7 +24,7 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--max_group_frames", type=int, default=64)
     ap.add_argument("--thread_type", default="slice", choices=["auto", "slice", "frame"],
                     help="FFmpeg decoder thread type for cv_reader_fast")
-    ap.add_argument("--thread_count", type=int, default=16,
+    ap.add_argument("--thread_count", type=int, default=1,
                     help="FFmpeg decoder thread count for cv_reader_fast")
     ap.add_argument("--disable_target_only", action="store_true",
                     help="Disable target-only bitcost pruning for legacy-compatible bitcost maps")
@@ -46,6 +46,10 @@ def build_parser() -> argparse.ArgumentParser:
                     help="How to compute readiness threshold (ignored when grouping_mode=fixed)")
     ap.add_argument("--readiness_norm_sum_threshold", type=float, default=2250000.0,
                     help="Normalization threshold for readiness")
+    ap.add_argument("--iframe_score_clip_mode", default="none", choices=["none", "non_i_percentile"],
+                    help="Clip I-frame score maps before readiness grouping")
+    ap.add_argument("--iframe_score_clip_percentile", type=float, default=95.0,
+                    help="Non-I score percentile used as I-frame clip cap")
 
     # misc
     ap.add_argument("--avoid_keyframes", action="store_true", default=True,

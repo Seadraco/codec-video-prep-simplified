@@ -18,7 +18,7 @@ class PreinferConfig:
     min_group_frames: int = 8
     max_group_frames: int = 64
     thread_type: str = "slice"
-    thread_count: int = 16
+    thread_count: int = 1
     disable_target_only: bool = False
     bitcost_grid: str = "adaptive"
     canvas_format: str = "jpg"
@@ -29,6 +29,8 @@ class PreinferConfig:
     sample_fps: float = 4.0
     readiness_sum_threshold_mode: str = "legacy"
     readiness_norm_sum_threshold: float = 2250000.0
+    iframe_score_clip_mode: str = "none"
+    iframe_score_clip_percentile: float = 95.0
     # ---- misc ----
     save_mask_video: bool = False
     parallel_decode_cv_reader: bool = False

@@ -20,6 +20,7 @@ import numpy as np
 from PIL import Image
 
 from codec_video_prep import run_preinfer
+from typing import Dict, List, Optional, Tuple
 
 try:
     import fcntl
@@ -66,13 +67,13 @@ class LlavaCodecPreprocessConfig:
     def from_legacy_kwargs(
         cls,
         cache_root: str,
-        codec_target_canvas: int | str = 0,
-        codec_group_size: int | str = 32,
-        codec_images_per_group: int | str = 4,
-        codec_patch: int | str = 14,
-        codec_max_pixels: int | str = 150000,
-        codec_min_group_frames: int | str = 8,
-        codec_max_group_frames: int | str = 64,
+        codec_target_canvas:Union[int, str]= 0,
+        codec_group_size:Union[int, str]= 32,
+        codec_images_per_group:Union[int, str]= 4,
+        codec_patch:Union[int, str]= 14,
+        codec_max_pixels:Union[int, str]= 150000,
+        codec_min_group_frames:Union[int, str]= 8,
+        codec_max_group_frames:Union[int, str]= 64,
         **kwargs: Any,
     ) -> "LlavaCodecPreprocessConfig":
         return cls(
@@ -112,7 +113,7 @@ class LlavaCodecPreprocessConfig:
         if int(self.group_size) % int(self.images_per_group) != 0:
             raise ValueError("group_size must be divisible by images_per_group")
 
-    def num_sampled_frames(self, total_frames: int | None = None) -> int:
+    def num_sampled_frames(self, total_frames:Optional[int]= None) -> int:
         target_groups = int(self.target_canvas) // int(self.images_per_group)
         target_frames = target_groups * int(self.group_size)
         if total_frames is None:
@@ -122,11 +123,11 @@ class LlavaCodecPreprocessConfig:
 
 @dataclass
 class LlavaCodecResult:
-    images: list[Image.Image]
+    images: List[Image.Image]
     src_positions: np.ndarray
     fps: float
     out_dir: str
-    meta: dict[str, Any]
+    meta: Dict[str, Any]
 
 
 class LlavaOneVisionCodecPreprocessor:
@@ -137,7 +138,7 @@ class LlavaOneVisionCodecPreprocessor:
         self.config = config
         self.cache_root = Path(config.cache_root)
 
-    def cache_dir_for(self, video: str, total_frames: int | None = None) -> Path:
+    def cache_dir_for(self, video: str, total_frames:Optional[int]= None) -> Path:
         cfg = self.config
         raw = (
             f"{video}|tc={cfg.target_canvas}|gs={cfg.group_size}"
@@ -149,7 +150,7 @@ class LlavaOneVisionCodecPreprocessor:
         key = hashlib.md5(raw.encode()).hexdigest()
         return self.cache_root / f"{Path(video).stem}_{key}"
 
-    def run(self, video: str, total_frames: int | None = None) -> LlavaCodecResult:
+    def run(self, video: str, total_frames:Optional[int]= None) -> LlavaCodecResult:
         out_dir = self.cache_dir_for(video, total_frames=total_frames)
         meta_path = out_dir / "meta.json"
         src_pos_path = out_dir / "src_patch_position.npy"
@@ -176,7 +177,7 @@ class LlavaOneVisionCodecPreprocessor:
         self,
         video: str,
         out_dir: Path,
-        total_frames: int | None = None,
+        total_frames:Optional[int]= None,
     ) -> LlavaCodecResult:
         cfg = self.config
         tmp_dir = Path(tempfile.mkdtemp(dir=str(self.cache_root), prefix=f".tmp_{out_dir.name[:48]}_"))
@@ -215,7 +216,7 @@ class LlavaOneVisionCodecPreprocessor:
         return load_llava_codec_result(out_dir)
 
 
-def load_llava_codec_result(out_dir: str | Path) -> LlavaCodecResult:
+def load_llava_codec_result(out_dir:Union[str, Path]) -> LlavaCodecResult:
     out_path = Path(out_dir)
     with open(out_path / "meta.json", "r", encoding="utf-8") as f:
         meta = json.load(f)
@@ -227,7 +228,7 @@ def load_llava_codec_result(out_dir: str | Path) -> LlavaCodecResult:
                 canvas_files = hits
                 break
         canvas_files = canvas_files or []
-    images: list[Image.Image] = []
+    images: List[Image.Image] = []
     for name in canvas_files:
         fp = out_path / name
         if str(name).endswith(".npy"):
@@ -245,9 +246,9 @@ def load_llava_codec_result(out_dir: str | Path) -> LlavaCodecResult:
 
 
 def drop_padding_canvases(
-    images: list[Image.Image],
+    images: List[Image.Image],
     src_positions: np.ndarray,
-) -> tuple[list[Image.Image], np.ndarray, int]:
+) -> Tuple[List[Image.Image], np.ndarray, int]:
     n_canvas = len(images)
     if n_canvas == 0:
         return images, src_positions, 0
@@ -305,7 +306,7 @@ def codec_positions_for_processor(
     import torch
 
     positions = torch.from_numpy(src_positions).long().to(device)
-    chunks: list[Any] = []
+    chunks: List[Any] = []
     offset = 0
     for row in image_grid_thw:
         t = int(row[0].item())
@@ -332,11 +333,11 @@ def timestamp_runs(
     fps: float,
     decimals: int,
     spatial_merge_size: int = 2,
-) -> list[tuple[str, int]]:
+) -> List[Tuple[str, int]]:
     t_values = patch_positions[:, 0]
     unique_t, counts = t_values.unique_consecutive(return_counts=True)
     merge_factor = int(spatial_merge_size) ** 2
-    runs: list[tuple[str, int]] = []
+    runs: List[Tuple[str, int]] = []
     for t_val, count in zip(unique_t.tolist(), counts.tolist()):
         if int(t_val) < 0:
             continue
@@ -354,7 +355,7 @@ def rewrite_text_with_codec_positions(
     decimals: int,
     spatial_merge_size: int = 2,
 ) -> str:
-    parts: list[str] = []
+    parts: List[str] = []
     for timestamp, token_count in timestamp_runs(
         patch_positions,
         fps=fps,
@@ -381,12 +382,12 @@ def rewrite_text_with_codec_positions(
 def prepare_llava_onevision_inputs(
     processor: Any,
     text: str,
-    codec_result: LlavaCodecResult | dict[str, Any],
-    task: str | None = None,
-    timestamp_decimals: int | None = None,
+    codec_result: Union[LlavaCodecResult, Dict[str, Any]],
+    task: Optional[str] = None,
+    timestamp_decimals:Optional[int]= None,
     max_pixels: int = 150000,
     spatial_merge_size: int = 2,
-) -> dict[str, Any]:
+) -> Dict[str, Any]:
     """Build processor/model inputs from a compressed-video preprocessing result."""
     if isinstance(codec_result, dict):
         images = list(codec_result["images"])

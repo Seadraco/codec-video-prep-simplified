@@ -27,8 +27,7 @@ from codec_selector.plugins.samplers.basic import sample_frames
 from codec_selector.plugins.scorers.bitcost import bitcost_items_to_score_maps
 from codec_selector.plugins.selectors.topk_2x2_bitcost import process_group_topk_2x2
 from codec_selector.codec_patch_gop.utils import ensure_dir, sha1_8
-from codec_selector.codec_patch_gop.video_probe import ffprobe_keyframe_frame_ids, mp4_keyframe_frame_ids
-from codec_selector.codec_patch_gop.frame_utils import frame_is_bad
+from codec_selector.codec_patch_gop.video_probe import ffprobe_keyframe_frame_ids
 from codec_selector.codec_patch_gop.video_processor import cv_reader_fetch_bitcost
 
 
@@ -170,56 +169,6 @@ def _resolve_readiness_threshold(
     return float(threshold), float(clamped_bpppf), float(norm_factor)
 
 
-def _clip_iframe_score_maps(
-    score_maps: List[np.ndarray],
-    bitcost_items: List[Dict[str, Any]],
-    mode: str,
-    percentile: float,
-) -> tuple[List[np.ndarray], Optional[Dict[str, Any]]]:
-    mode = str(mode).lower().strip()
-    if mode in {"", "none"}:
-        return score_maps, None
-    if mode != "non_i_percentile":
-        raise ValueError(f"unsupported iframe_score_clip_mode: {mode}")
-
-    iframe_indices = [
-        idx for idx, item in enumerate(bitcost_items)
-        if str(item.get("pict_type", "")).upper() == "I"
-    ]
-    iframe_index_set = set(iframe_indices)
-    non_iframe_scores = [
-        np.asarray(score_maps[idx], dtype=np.float32).reshape(-1)
-        for idx in range(len(score_maps))
-        if idx not in iframe_index_set
-    ]
-    if not iframe_indices or not non_iframe_scores:
-        return score_maps, {
-            "mode": mode,
-            "percentile": float(percentile),
-            "iframe_count": int(len(iframe_indices)),
-            "applied": False,
-        }
-
-    pct = float(np.clip(float(percentile), 0.0, 100.0))
-    cap = float(np.percentile(np.concatenate(non_iframe_scores), pct))
-    clipped: List[np.ndarray] = []
-    changed_pixels = 0
-    for idx, score in enumerate(score_maps):
-        arr = np.asarray(score, dtype=np.float32)
-        if idx in iframe_index_set:
-            changed_pixels += int(np.count_nonzero(arr > cap))
-            arr = np.minimum(arr, cap).astype(np.float32)
-        clipped.append(arr)
-    return clipped, {
-        "mode": mode,
-        "percentile": pct,
-        "cap": cap,
-        "iframe_count": int(len(iframe_indices)),
-        "changed_pixels": int(changed_pixels),
-        "applied": True,
-    }
-
-
 def run_bitcost_readiness(config: BitcostReadinessConfig) -> PipelineResult:
     t_pipeline_start = time.perf_counter()
     timing: Dict[str, float] = {}
@@ -282,9 +231,7 @@ def run_bitcost_readiness(config: BitcostReadinessConfig) -> PipelineResult:
         sampling_debug["avoid_keyframes_note"] = "ignored for all_frames sampling"
     elif bool(cfg.avoid_keyframes):
         t0 = time.perf_counter()
-        keyframe_ids = mp4_keyframe_frame_ids(str(cfg.video))
-        if keyframe_ids is None:
-            keyframe_ids = ffprobe_keyframe_frame_ids(str(cfg.video), fps=float(meta.fps), total_frames=int(meta.total_frames))
+        keyframe_ids = ffprobe_keyframe_frame_ids(str(cfg.video), fps=float(meta.fps), total_frames=int(meta.total_frames))
         frame_ids = _shift_frame_ids_off_keyframes(
             frame_ids=frame_ids,
             keyframe_ids=keyframe_ids,
@@ -367,17 +314,6 @@ def run_bitcost_readiness(config: BitcostReadinessConfig) -> PipelineResult:
         codec_name=str(meta.codec_name),
     )
     timing["bitcost_to_score_maps"] = elapsed_since(t0)
-
-    iframe_score_clip_debug: Optional[Dict[str, Any]] = None
-    if str(cfg.iframe_score_clip_mode).lower().strip() != "none":
-        t0 = time.perf_counter()
-        score_maps, iframe_score_clip_debug = _clip_iframe_score_maps(
-            score_maps=score_maps,
-            bitcost_items=bitcost_items,
-            mode=str(cfg.iframe_score_clip_mode),
-            percentile=float(cfg.iframe_score_clip_percentile),
-        )
-        timing["clip_iframe_score_maps"] = elapsed_since(t0)
 
     frame_score_norm_debug: Optional[Dict[str, Any]] = None
     if str(cfg.frame_score_norm_mode) == "frame_mean_floor":
@@ -581,9 +517,6 @@ def run_bitcost_readiness(config: BitcostReadinessConfig) -> PipelineResult:
         "bitcost_log_scale": bool(cfg.bitcost_log_scale),
         "frame_score_norm_mode": str(cfg.frame_score_norm_mode),
         "frame_score_norm_debug": frame_score_norm_debug,
-        "iframe_score_clip_mode": str(cfg.iframe_score_clip_mode),
-        "iframe_score_clip_percentile": float(cfg.iframe_score_clip_percentile),
-        "iframe_score_clip_debug": iframe_score_clip_debug,
         "score_source": "bitcost",
         "decode_backend": "ffmpeg_native",
         "hb_wb": [int(hb), int(wb)],

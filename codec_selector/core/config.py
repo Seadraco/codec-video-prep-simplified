@@ -82,6 +82,8 @@ class BitcostReadinessConfig:
     frame_score_norm_mode: str = "none"
     frame_score_norm_floor_ratio: float = 0.5
     frame_score_norm_allow_boost: bool = False
+    iframe_score_clip_mode: str = "none"
+    iframe_score_clip_percentile: float = 95.0
 
     avoid_keyframes: bool = False
     avoid_keyframe_offset: int = 1
@@ -115,6 +117,7 @@ class BitcostReadinessConfig:
         self.grouping_mode = str(self.grouping_mode).lower().strip()
         self.bitcost_grid = str(self.bitcost_grid).lower().strip()
         self.frame_score_norm_mode = str(self.frame_score_norm_mode).lower().strip()
+        self.iframe_score_clip_mode = str(self.iframe_score_clip_mode).lower().strip()
         self.readiness_sum_threshold_mode = str(self.readiness_sum_threshold_mode).lower().strip()
         self.canvas_format = str(self.canvas_format).lower().strip()
         self.decode_backend = str(self.decode_backend).lower().strip()

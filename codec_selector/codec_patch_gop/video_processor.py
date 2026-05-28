@@ -173,9 +173,15 @@ def _fetch_bitcost_parallel_segments(
         fid = int(item.get("frame_idx", -1))
         got_counts[fid] = got_counts.get(fid, 0) + 1
     if got_counts != want_counts:
-        missing = [fid for fid, cnt in want_counts.items() if got_counts.get(fid, 0) != cnt][:8]
-        extra = [fid for fid, cnt in got_counts.items() if want_counts.get(fid, 0) != cnt][:8]
-        raise RuntimeError(f"segment cv_reader frame mismatch: missing={missing} extra={extra}")
+        missing = [fid for fid, cnt in want_counts.items() if got_counts.get(fid, 0) != cnt]
+        extra = [fid for fid, cnt in got_counts.items() if want_counts.get(fid, 0) != cnt]
+        if missing == [0] and not extra:
+            # Some codecs do not materialize frame 0 through segment seeking even
+            # when seeking from zero. Keep the parallel path and let the normal
+            # missing-bitcost backfill below handle this leading frame.
+            pass
+        else:
+            raise RuntimeError(f"segment cv_reader frame mismatch: missing={missing[:8]} extra={extra[:8]}")
 
     by_frame: Dict[int, List[Dict[str, Any]]] = {}
     for item in items:
@@ -185,6 +191,8 @@ def _fetch_bitcost_parallel_segments(
     for fid in frame_ids:
         bucket = by_frame.get(int(fid))
         if not bucket:
+            if int(fid) == 0:
+                continue
             raise RuntimeError(f"segment cv_reader missing frame {int(fid)}")
         ordered.append(bucket.pop(0))
     return ordered
@@ -221,10 +229,10 @@ def cv_reader_fetch_bitcost(
     # Decode sequentially, but only materialize Python/numpy objects for target frames.
     # Frame threading is faster for long sparse VideoMME-style sampling; the C++
     # reader disables decoder-internal target-only accounting for that mode because
-    # avctx->frame_number is not stable enough under frame threading.
-    thread_count = int(os.environ.get("CV_READER_FAST_THREAD_COUNT", "16"))
+    # frame threading drops opaque_ref under the new bitcost_only patch.
+    thread_count = int(os.environ.get("CV_READER_FAST_THREAD_COUNT", "1"))
     thread_type = os.environ.get("CV_READER_FAST_THREAD_TYPE", "frame")
-    if codec_name == "hevc" and "CV_READER_FAST_THREAD_TYPE" not in os.environ:
+    if codec_name in {"hevc", "h264"} and "CV_READER_FAST_THREAD_TYPE" not in os.environ:
         # The patched HEVC bitcost path stores CTU maps correctly under slice
         # threading; frame threading can crash inside FFmpeg's HEVC decoder.
         thread_type = "slice"
