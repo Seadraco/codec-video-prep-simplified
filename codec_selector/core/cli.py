@@ -33,6 +33,8 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--frame_score_norm_mode", default="none", choices=["none", "frame_mean_floor"])
     ap.add_argument("--frame_score_norm_floor_ratio", default=0.5, type=float)
     ap.add_argument("--frame_score_norm_allow_boost", default=False, action=argparse.BooleanOptionalAction)
+    ap.add_argument("--iframe_score_clip_mode", default="none", choices=["none", "non_i_percentile"])
+    ap.add_argument("--iframe_score_clip_percentile", default=95.0, type=float)
     ap.add_argument("--avoid_keyframes", default=False, action=argparse.BooleanOptionalAction)
     ap.add_argument("--avoid_keyframe_offset", default=1, type=int)
     ap.add_argument("--canvas_format", default="jpg", choices=["jpg", "png"])
