@@ -38,10 +38,13 @@ cd "$BUILD"
   --enable-decoder=h264 \
   --enable-decoder=hevc
 
-make -j"$(nproc)"
+NPROC=$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4)
+make -j"$NPROC"
 make install
 
 mkdir -p "$ROOT/src/codec_video_prep/libs"
+rm -f "$ROOT/src/codec_video_prep/libs/"* 2>/dev/null || true
+
 cp "$INSTALL"/lib/libavcodec.so* "$ROOT/src/codec_video_prep/libs/"
 cp "$INSTALL"/lib/libavformat.so* "$ROOT/src/codec_video_prep/libs/"
 cp "$INSTALL"/lib/libavutil.so* "$ROOT/src/codec_video_prep/libs/"
