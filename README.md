@@ -221,6 +221,10 @@ Each frame dict contains:
 
 ## Build a manylinux wheel
 
+The manylinux build uses `build_pixel_ffmpeg.sh` by default, which applies the
+pixel-capable patched FFmpeg path used by the fast decoder. Override
+`FFMPEG_BUILD_SCRIPT` only if you intentionally want another FFmpeg patch mode.
+
 ```bash
 PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple \
 PIP_TRUSTED_HOST=mirrors.aliyun.com \
