@@ -274,14 +274,15 @@ def cv_reader_fetch_bitcost(
         fid = int(fid)
         item = {"frame_idx": fid}
         fr = lookup.get(fid)
-        if fr is not None and fr.get("bitcost") is not None:
-            bc = fr["bitcost"]
-            if "sub_mb_bit_cost" in wanted_keys and "sub_mb_bit_cost" in bc:
-                item["sub_mb_bit_cost"] = np.asarray(bc["sub_mb_bit_cost"])
-            if "mb_bit_cost" in wanted_keys and "mb_bit_cost" in bc:
-                item["mb_bit_cost"] = np.asarray(bc["mb_bit_cost"])
-            if "ctu_bit_cost" in wanted_keys and "ctu_bit_cost" in bc:
-                item["ctu_bit_cost"] = np.asarray(bc["ctu_bit_cost"])
+        if fr is not None:
+            if fr.get("bitcost") is not None:
+                bc = fr["bitcost"]
+                if "sub_mb_bit_cost" in wanted_keys and "sub_mb_bit_cost" in bc:
+                    item["sub_mb_bit_cost"] = np.asarray(bc["sub_mb_bit_cost"])
+                if "mb_bit_cost" in wanted_keys and "mb_bit_cost" in bc:
+                    item["mb_bit_cost"] = np.asarray(bc["mb_bit_cost"])
+                if "ctu_bit_cost" in wanted_keys and "ctu_bit_cost" in bc:
+                    item["ctu_bit_cost"] = np.asarray(bc["ctu_bit_cost"])
             if "pict_type" in fr:
                 item["pict_type"] = fr["pict_type"]
             if export_pixels and "pixels" in fr:

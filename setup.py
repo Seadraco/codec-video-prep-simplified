@@ -1,3 +1,9 @@
+"""setuptools configuration for codec-video-prep.
+
+This file handles the C++ extension build and FFmpeg library bundling.
+PEP 517 metadata is defined in pyproject.toml.
+"""
+
 from pathlib import Path
 
 import numpy
@@ -5,6 +11,18 @@ from setuptools import Extension, find_packages, setup
 
 ROOT = Path(__file__).parent
 ffmpeg_root = ROOT / "build_ffmpeg_install"
+
+extra_link_args = [
+    f"-L{ffmpeg_root / 'lib'}",
+    "-Wl,--no-as-needed",
+    "-lavformat",
+    "-lavcodec",
+    "-lswscale",
+    "-lavutil",
+    "-Wl,--as-needed",
+    "-Wl,-rpath,$ORIGIN/libs",
+    "-Wl,-Bsymbolic",
+]
 
 ext = Extension(
     "codec_video_prep.cv_reader_fast",
@@ -17,20 +35,17 @@ ext = Extension(
     libraries=[],
     language="c++",
     extra_compile_args=["-std=c++11", "-O3"],
-    extra_link_args=[
-        f"-L{ffmpeg_root / 'lib'}",
-        "-Wl,--no-as-needed",
-        "-lavformat",
-        "-lavcodec",
-        "-lswscale",
-        "-lavutil",
-        "-Wl,--as-needed",
-        "-Wl,-rpath,$ORIGIN/libs",
-        "-Wl,-Bsymbolic",
-    ],
+    extra_link_args=extra_link_args,
 )
 
-packages = find_packages("src") + find_packages(".", include=["codec_selector", "codec_selector.*"])
+# Packages from src/ (codec_video_prep, compressed_video_preinfer)
+src_packages = find_packages("src")
+
+# codec_selector is still part of the runtime pipeline used by codec_video_prep.api.
+root_packages = find_packages(".", include=["codec_selector", "codec_selector.*"])
+
+packages = src_packages + root_packages
+
 package_dir = {
     "codec_video_prep": "src/codec_video_prep",
     "compressed_video_preinfer": "src/compressed_video_preinfer",
@@ -56,6 +71,10 @@ setup(
     },
     packages=packages,
     package_dir=package_dir,
-    package_data={"codec_video_prep": ["libs/*.so*"]},
+    package_data={
+        "codec_video_prep": ["libs/*.so*"],
+        "codec_selector": [],
+    },
     ext_modules=[ext],
+    zip_safe=False,
 )
