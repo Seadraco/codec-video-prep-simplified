@@ -140,7 +140,7 @@ codec-video-prep \
 ```bash
 for id in 001 002 003 004 005 006 007 008 009 010; do
   codec-video-prep \
-    --video /data/videommev2/${id}.mp4 \
+    --video /path/to/${id}.mp4 \
     --out_dir ./output/${id} \
     --num_sampled_frames 512 \
     --group_size 32 \
