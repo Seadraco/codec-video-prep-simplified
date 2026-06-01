@@ -18,6 +18,16 @@ Codec-aware video preprocessing for training and inference. Extracts codec-level
 python -m pip install codec_video_prep-*.whl
 ```
 
+Choose the wheel that matches your Python ABI and CPU architecture. Current
+Linux wheels are built for:
+
+- `manylinux2014_x86_64` / `manylinux_2_17_x86_64`: x86_64 Linux with glibc >= 2.17.
+- `manylinux2014_aarch64` / `manylinux_2_17_aarch64`: aarch64 Linux with glibc >= 2.17.
+
+The aarch64 wheels bundle aarch64 FFmpeg shared libraries built in a
+manylinux2014/aarch64 environment, so the Linux wheel baseline is consistent
+across x86_64 and aarch64.
+
 Verify the installation:
 
 ```bash
@@ -255,6 +265,9 @@ The old import path and CLI names are kept as aliases:
 ## Requirements
 
 - Python ≥ 3.10
+- Linux:
+  - x86_64 wheels require glibc >= 2.17.
+  - aarch64 wheels require glibc >= 2.17.
 - numpy >= 1.23, < 2.0
 - opencv-python-headless < 4.12
 - Pillow
