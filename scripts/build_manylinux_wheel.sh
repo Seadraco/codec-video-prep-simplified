@@ -4,8 +4,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 IMAGE="${MANYLINUX_IMAGE:-quay.io/pypa/manylinux2014_x86_64:latest}"
 PY_TAG="${PY_TAG:-cp310-cp310}"
-PIP_INDEX_URL="${PIP_INDEX_URL:-https://mirrors.aliyun.com/pypi/simple}"
-PIP_TRUSTED_HOST="${PIP_TRUSTED_HOST:-mirrors.aliyun.com}"
+PIP_INDEX_URL="${PIP_INDEX_URL:-}"
+PIP_TRUSTED_HOST="${PIP_TRUSTED_HOST:-}"
 REUSE_FFMPEG="${REUSE_FFMPEG:-0}"
 
 DOCKER_ENV=()

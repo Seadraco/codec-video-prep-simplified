@@ -5,8 +5,9 @@ Build a Python 3.10 manylinux wheel:
 ```bash
 cd /path/to/cv_pre_infer
 
-PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple \
-PIP_TRUSTED_HOST=mirrors.aliyun.com \
+# Optional: specify a PyPI mirror via environment variables
+# export PIP_INDEX_URL=https://pypi.org/simple
+# export PIP_TRUSTED_HOST=pypi.org
 bash scripts/build_manylinux_wheel.sh
 ```
 

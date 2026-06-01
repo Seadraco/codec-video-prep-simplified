@@ -41,6 +41,6 @@ cv-preinfer = "compressed_video_preinfer.cli:main"
 cv-preinfer-doctor = "compressed_video_preinfer.doctor:main"
 
 [project.urls]
-Homepage = "https://github.com/your-org/codec-video-prep"
-Documentation = "https://github.com/your-org/codec-video-prep#readme"
-Issues = "https://github.com/your-org/codec-video-prep/issues"
+Homepage = "https://github.com/YunyaoYan/codec-video-prep"
+Documentation = "https://github.com/YunyaoYan/codec-video-prep#readme"
+Issues = "https://github.com/YunyaoYan/codec-video-prep/issues"

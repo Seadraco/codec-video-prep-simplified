@@ -11,7 +11,7 @@ pip install compressed-video-preinfer
 
 cv-preinfer \
   --video /path/to/video.mp4 \
-  --out_dir /tmp/preinfer_out \
+  --out_dir /path/to/output \
   --num_sampled_frames 1024 \
   --group_size 32 \
   --images_per_group 4 \
@@ -25,7 +25,7 @@ from compressed_video_preinfer import run_preinfer
 
 result = run_preinfer(
     video="/path/to/video.mp4",
-    out_dir="/tmp/preinfer_out",
+    out_dir="/path/to/output",
 )
 
 print(result.timings)
@@ -385,8 +385,8 @@ Run a real video:
 
 ```bash
 cv-preinfer \
-  --video /video_vit/test.mp4 \
-  --out_dir /tmp/preinfer_out \
+  --video /path/to/video.mp4 \
+  --out_dir /path/to/output \
   --num_sampled_frames 1024 \
   --group_size 32 \
   --images_per_group 4 \
