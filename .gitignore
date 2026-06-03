@@ -86,3 +86,8 @@ analysis_data.csv
 # Output directories
 preinfer_out/
 output/
+
+# Test outputs
+test_results/
+test_results_*/
+
