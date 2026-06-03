@@ -63,6 +63,7 @@ class BitcostReadinessConfig:
 
     grouping_mode: str = "fixed"
     group_size: int = 32
+    target_canvas: int = 0
     min_group_frames: int = 8
     max_group_frames: int = 64
     min_group_sec: float = 0.0
@@ -91,6 +92,17 @@ class BitcostReadinessConfig:
     canvas_format: str = "jpg"
     save_mask_video: bool = False
     video_fps: float = 0.0
+    verbose: bool = False
+
+    adaptive_anchor: bool = False
+    adaptive_anchor_w_center: float = 0.7
+    adaptive_anchor_w_low_bc: float = 0.3
+    adaptive_gop: bool = False
+    adaptive_gop_gamma: float = 0.0
+    adaptive_gop_percentile: float = 75.0
+    event_aggregation: bool = False
+    event_aggregation_bins: int = 4
+    event_aggregation_min_blocks: int = 8
 
     readiness_sum_threshold: float = 0.0
     readiness_sum_threshold_mode: str = "legacy"
@@ -128,6 +140,17 @@ class BitcostReadinessConfig:
         self.parallel_segments = max(0, int(self.parallel_segments))
         self.threads_per_segment = max(1, int(self.threads_per_segment))
         self.segment_guard_frames = max(0, int(self.segment_guard_frames))
+        self.target_canvas = max(0, int(self.target_canvas))
+        self.verbose = bool(self.verbose)
+        self.adaptive_anchor = bool(self.adaptive_anchor)
+        self.adaptive_anchor_w_center = float(self.adaptive_anchor_w_center)
+        self.adaptive_anchor_w_low_bc = float(self.adaptive_anchor_w_low_bc)
+        self.adaptive_gop = bool(self.adaptive_gop)
+        self.adaptive_gop_gamma = float(self.adaptive_gop_gamma)
+        self.adaptive_gop_percentile = float(self.adaptive_gop_percentile)
+        self.event_aggregation = bool(self.event_aggregation)
+        self.event_aggregation_bins = max(1, int(self.event_aggregation_bins))
+        self.event_aggregation_min_blocks = max(0, int(self.event_aggregation_min_blocks))
         self.patch = int(max(1, int(self.patch)))
         self.block_size = int(max(1, int(self.block_size)))
         return self

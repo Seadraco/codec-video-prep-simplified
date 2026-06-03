@@ -15,6 +15,8 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--out_dir", required=True)
     ap.add_argument("--num_sampled_frames", type=int, default=1024)
     ap.add_argument("--group_size", type=int, default=32)
+    ap.add_argument("--target_canvas", type=int, default=0,
+                    help="Target total canvas count for adaptive GOP ablation; 0=unbounded")
     ap.add_argument("--images_per_group", type=int, default=4)
     ap.add_argument("--patch", type=int, default=14)
     ap.add_argument("--max_pixels", type=int, default=153664)
@@ -58,6 +60,26 @@ def build_parser() -> argparse.ArgumentParser:
                     help="Disable keyframe avoidance")
     ap.add_argument("--save_mask_video", action="store_true",
                     help="Save side-by-side mask visualization video")
+    ap.add_argument("--verbose", action="store_true",
+                    help="Print debug logs")
+    ap.add_argument("--adaptive_anchor", action="store_true",
+                    help="Select each group's full-frame anchor adaptively")
+    ap.add_argument("--adaptive_anchor_w_center", type=float, default=0.7,
+                    help="Adaptive anchor temporal-center weight")
+    ap.add_argument("--adaptive_anchor_w_low_bc", type=float, default=0.3,
+                    help="Adaptive anchor low bit-cost weight")
+    ap.add_argument("--adaptive_gop", action="store_true",
+                    help="Split groups adaptively using frame bit-cost as predictive-cost proxy")
+    ap.add_argument("--adaptive_gop_gamma", type=float, default=0.0,
+                    help="Adaptive GOP split threshold; 0 uses percentile")
+    ap.add_argument("--adaptive_gop_percentile", type=float, default=75.0,
+                    help="Auto threshold percentile for adaptive GOP")
+    ap.add_argument("--event_aggregation", action="store_true",
+                    help="Reserve transition block budget across temporal event bins")
+    ap.add_argument("--event_aggregation_bins", type=int, default=4,
+                    help="Temporal bins used for event aggregation")
+    ap.add_argument("--event_aggregation_min_blocks", type=int, default=8,
+                    help="Minimum transition blocks reserved per non-empty event bin")
     ap.add_argument("--parallel_decode_cv_reader", action="store_true",
                     help="Parallelize decode and cv_reader")
     ap.add_argument("--decode_backend", default="cv_reader_pixels",

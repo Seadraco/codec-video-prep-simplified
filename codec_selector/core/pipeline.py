@@ -7,7 +7,7 @@ import os
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -44,6 +44,194 @@ def _jsonable(value: Any) -> Any:
     if isinstance(value, np.generic):
         return value.item()
     return value
+
+
+def _select_adaptive_anchor(
+    group_scores: List[np.ndarray],
+    good_mask: List[bool],
+    w_center: float,
+    w_low_bc: float,
+) -> Tuple[int, Dict[str, Any]]:
+    n = int(len(group_scores))
+    if n <= 0:
+        return 0, {"center_rank": 1, "bitcost_rank": 1}
+
+    center = float(n - 1) / 2.0
+    max_dist = max(center, float(n - 1) - center, 1.0)
+    center_scores = np.asarray(
+        [1.0 - (abs(float(i) - center) / max_dist) for i in range(n)],
+        dtype=np.float32,
+    )
+    bitcost_totals = np.asarray([float(np.asarray(score).sum()) for score in group_scores], dtype=np.float64)
+    bc_min = float(bitcost_totals.min()) if bitcost_totals.size else 0.0
+    bc_max = float(bitcost_totals.max()) if bitcost_totals.size else 0.0
+    if bc_max > bc_min:
+        low_bitcost_scores = 1.0 - ((bitcost_totals - bc_min) / (bc_max - bc_min))
+    else:
+        low_bitcost_scores = np.ones((n,), dtype=np.float64)
+
+    scores = (float(w_center) * center_scores.astype(np.float64)) + (
+        float(w_low_bc) * low_bitcost_scores.astype(np.float64)
+    )
+    for i, is_good in enumerate(good_mask):
+        if not bool(is_good):
+            scores[int(i)] = -np.inf
+    if not np.isfinite(scores).any():
+        scores = (float(w_center) * center_scores.astype(np.float64)) + (
+            float(w_low_bc) * low_bitcost_scores.astype(np.float64)
+        )
+
+    anchor_idx = int(np.argmax(scores))
+    center_order = np.argsort(-center_scores)
+    bitcost_order = np.argsort(bitcost_totals)
+    center_rank = int(np.where(center_order == anchor_idx)[0][0]) + 1
+    bitcost_rank = int(np.where(bitcost_order == anchor_idx)[0][0]) + 1
+    debug = {
+        "center_rank": int(center_rank),
+        "bitcost_rank": int(bitcost_rank),
+        "score": float(scores[anchor_idx]),
+        "center_score": float(center_scores[anchor_idx]),
+        "low_bitcost_score": float(low_bitcost_scores[anchor_idx]),
+        "bitcost_total": float(bitcost_totals[anchor_idx]),
+        "weights": {
+            "center": float(w_center),
+            "low_bitcost": float(w_low_bc),
+        },
+    }
+    return anchor_idx, debug
+
+
+def _build_adaptive_gop_groups(
+    frame_ids: List[int],
+    score_maps: List[np.ndarray],
+    min_group_frames: int,
+    max_group_frames: int,
+    gamma: float,
+    percentile: float,
+) -> Tuple[List[GroupSpec], Dict[str, Any]]:
+    costs = np.asarray([float(np.asarray(score).sum()) for score in score_maps], dtype=np.float64)
+    if costs.size == 0:
+        return [], {"threshold": 0.0, "costs": []}
+    threshold = float(gamma) if float(gamma) > 0.0 else float(np.percentile(costs, float(percentile)))
+    min_len = max(1, int(min_group_frames))
+    max_len = max(min_len, int(max_group_frames))
+    groups: List[GroupSpec] = []
+    start = 0
+    split_points: List[int] = []
+    for i in range(1, len(frame_ids)):
+        cur_len = int(i - start)
+        hit_cost = bool(float(costs[i]) > threshold and cur_len >= min_len)
+        hit_max = bool(cur_len >= max_len)
+        if hit_cost or hit_max:
+            reason = "adaptive_gop_cost" if hit_cost else "adaptive_gop_max_group_frames"
+            groups.append(
+                GroupSpec(
+                    group_idx=int(len(groups)),
+                    start=int(start),
+                    end=int(i),
+                    frame_count=int(i - start),
+                    stop_reason=reason,
+                    readiness={
+                        "adaptive_gop_threshold": float(threshold),
+                        "split_cost": float(costs[i]),
+                        "split_frame_id": int(frame_ids[i]),
+                    },
+                )
+            )
+            split_points.append(int(i))
+            start = int(i)
+    if start < len(frame_ids):
+        groups.append(
+            GroupSpec(
+                group_idx=int(len(groups)),
+                start=int(start),
+                end=int(len(frame_ids)),
+                frame_count=int(len(frame_ids) - start),
+                stop_reason="adaptive_gop_tail",
+                readiness={"adaptive_gop_threshold": float(threshold)},
+            )
+        )
+    debug = {
+        "threshold": float(threshold),
+        "gamma": float(gamma),
+        "percentile": float(percentile),
+        "cost_min": float(costs.min()),
+        "cost_mean": float(costs.mean()),
+        "cost_max": float(costs.max()),
+        "split_points": split_points,
+    }
+    return groups, debug
+
+
+def _merge_adaptive_gop_groups_to_target(
+    groups: List[GroupSpec],
+    target_groups: int,
+) -> Tuple[List[GroupSpec], Dict[str, Any]]:
+    target = max(1, int(target_groups))
+    work = [
+        GroupSpec(
+            group_idx=int(i),
+            start=int(g.start),
+            end=int(g.end),
+            frame_count=int(g.end - g.start),
+            stop_reason=str(g.stop_reason),
+            readiness=dict(g.readiness),
+        )
+        for i, g in enumerate(groups)
+    ]
+    merge_records: List[Dict[str, Any]] = []
+    while len(work) > target:
+        best_i = 0
+        best_cost = float("inf")
+        for i in range(len(work) - 1):
+            cost = float(work[i].readiness.get("split_cost", 0.0))
+            if cost < best_cost:
+                best_i = int(i)
+                best_cost = float(cost)
+        left = work[best_i]
+        right = work[best_i + 1]
+        merged_readiness = dict(left.readiness)
+        merged_readiness.update({
+            "merged_adaptive_gop": True,
+            "merged_stop_reasons": [
+                str(left.stop_reason),
+                str(right.stop_reason),
+            ],
+            "merged_boundary_cost": float(best_cost),
+        })
+        merged = GroupSpec(
+            group_idx=int(best_i),
+            start=int(left.start),
+            end=int(right.end),
+            frame_count=int(right.end - left.start),
+            stop_reason="adaptive_gop_target_canvas_merge",
+            readiness=merged_readiness,
+        )
+        merge_records.append({
+            "left_start": int(left.start),
+            "left_end": int(left.end),
+            "right_start": int(right.start),
+            "right_end": int(right.end),
+            "boundary_cost": float(best_cost),
+        })
+        work[best_i:best_i + 2] = [merged]
+    out: List[GroupSpec] = []
+    for i, g in enumerate(work):
+        out.append(
+            GroupSpec(
+                group_idx=int(i),
+                start=int(g.start),
+                end=int(g.end),
+                frame_count=int(g.end - g.start),
+                stop_reason=str(g.stop_reason),
+                readiness=dict(g.readiness),
+            )
+        )
+    return out, {
+        "target_groups": int(target),
+        "merge_count": int(len(merge_records)),
+        "merge_records": merge_records,
+    }
 
 
 def _shift_frame_ids_off_keyframes(
@@ -408,8 +596,36 @@ def run_bitcost_readiness(config: BitcostReadinessConfig) -> PipelineResult:
     readiness_threshold = float(cfg.readiness_sum_threshold)
     clamped_bpppf = float(bits_per_pixel_per_frame)
     readiness_norm_factor = 1.0
+    adaptive_gop_debug: Optional[Dict[str, Any]] = None
     t0 = time.perf_counter()
-    if cfg.grouping_mode == "readiness":
+    if bool(cfg.adaptive_gop):
+        group_specs, adaptive_gop_debug = _build_adaptive_gop_groups(
+            frame_ids=frame_ids,
+            score_maps=score_maps,
+            min_group_frames=int(min_group_frames),
+            max_group_frames=int(max_group_frames),
+            gamma=float(cfg.adaptive_gop_gamma),
+            percentile=float(cfg.adaptive_gop_percentile),
+        )
+        if int(cfg.target_canvas) > 0:
+            target_groups = max(1, int(cfg.target_canvas) // max(1, int(cfg.images_per_group)))
+            before_groups = int(len(group_specs))
+            group_specs, merge_debug = _merge_adaptive_gop_groups_to_target(
+                group_specs,
+                target_groups=int(target_groups),
+            )
+            adaptive_gop_debug["target_canvas"] = int(cfg.target_canvas)
+            adaptive_gop_debug["target_groups"] = int(target_groups)
+            adaptive_gop_debug["groups_before_target_merge"] = int(before_groups)
+            adaptive_gop_debug["groups_after_target_merge"] = int(len(group_specs))
+            adaptive_gop_debug["target_merge"] = merge_debug
+        if bool(cfg.verbose):
+            print(
+                f"adaptive_gop: groups={len(group_specs)} "
+                f"threshold={float(adaptive_gop_debug.get('threshold', 0.0)):.4f} "
+                f"splits={adaptive_gop_debug.get('split_points', [])}"
+            )
+    elif cfg.grouping_mode == "readiness":
         readiness_threshold, clamped_bpppf, readiness_norm_factor = _resolve_readiness_threshold(
             cfg=cfg,
             score_maps=score_maps,
@@ -450,6 +666,24 @@ def run_bitcost_readiness(config: BitcostReadinessConfig) -> PipelineResult:
         group_scores = list(score_maps[start:end])
         group_block_scores = list(block_scores_all[start:end])
         group_good_mask = all_good_masks[start:end]
+        anchor_idx = 0
+        anchor_strategy = "fixed_anchor"
+        anchor_debug: Optional[Dict[str, Any]] = None
+        if bool(cfg.adaptive_anchor):
+            anchor_idx, anchor_debug = _select_adaptive_anchor(
+                group_scores=group_scores,
+                good_mask=[bool(x) for x in group_good_mask],
+                w_center=float(cfg.adaptive_anchor_w_center),
+                w_low_bc=float(cfg.adaptive_anchor_w_low_bc),
+            )
+            anchor_strategy = "adaptive_anchor"
+            if bool(cfg.verbose):
+                print(
+                    f"Group {group_idx}: frames={group_frame_ids} "
+                    f"selected_anchor={int(group_frame_ids[int(anchor_idx)])} "
+                    f"reason: center_rank={int(anchor_debug.get('center_rank', 0))} "
+                    f"bitcost_rank={int(anchor_debug.get('bitcost_rank', 0))}"
+                )
         group_meta, keep_patch_mask, images_rgb, patch_pos, src_pos, _img_ptr = process_group_topk_2x2(
             group_idx=int(group_idx),
             group_frame_ids=group_frame_ids,
@@ -460,7 +694,14 @@ def run_bitcost_readiness(config: BitcostReadinessConfig) -> PipelineResult:
             block_size=int(cfg.block_size),
             group_block_scores=group_block_scores,
             good_mask=group_good_mask,
+            anchor_idx=int(anchor_idx),
+            anchor_strategy=str(anchor_strategy),
+            event_aggregation=bool(cfg.event_aggregation),
+            event_aggregation_bins=int(cfg.event_aggregation_bins),
+            event_aggregation_min_blocks=int(cfg.event_aggregation_min_blocks),
         )
+        if anchor_debug is not None:
+            group_meta["anchor_debug"] = anchor_debug
 
         patch_pos_global = patch_pos.copy()
         patch_pos_global[:, 0] += int(global_img_offset)
@@ -558,6 +799,7 @@ def run_bitcost_readiness(config: BitcostReadinessConfig) -> PipelineResult:
         "keyframes_found": int(len(keyframe_ids)),
         "grouping_mode": str(cfg.grouping_mode),
         "group_size": int(cfg.group_size),
+        "target_canvas": int(cfg.target_canvas),
         "images_per_group": int(cfg.images_per_group),
         "readiness_sum_threshold_mode": str(cfg.readiness_sum_threshold_mode),
         "readiness_sum_threshold": float(readiness_threshold),
@@ -571,6 +813,17 @@ def run_bitcost_readiness(config: BitcostReadinessConfig) -> PipelineResult:
         "readiness_coverage_bins": int(cfg.readiness_coverage_bins),
         "readiness_delta_ratio": float(cfg.readiness_delta_ratio),
         "save_mask_video": bool(cfg.save_mask_video),
+        "verbose": bool(cfg.verbose),
+        "adaptive_anchor": bool(cfg.adaptive_anchor),
+        "adaptive_anchor_w_center": float(cfg.adaptive_anchor_w_center),
+        "adaptive_anchor_w_low_bc": float(cfg.adaptive_anchor_w_low_bc),
+        "adaptive_gop": bool(cfg.adaptive_gop),
+        "adaptive_gop_gamma": float(cfg.adaptive_gop_gamma),
+        "adaptive_gop_percentile": float(cfg.adaptive_gop_percentile),
+        "adaptive_gop_debug": adaptive_gop_debug,
+        "event_aggregation": bool(cfg.event_aggregation),
+        "event_aggregation_bins": int(cfg.event_aggregation_bins),
+        "event_aggregation_min_blocks": int(cfg.event_aggregation_min_blocks),
         "mask_video_sbs": str(Path(sbs_video_path).name) if sbs_video_path is not None else None,
         "mask_video_only": str(Path(masked_video_path).name) if masked_video_path is not None else None,
         "patch": int(cfg.patch),

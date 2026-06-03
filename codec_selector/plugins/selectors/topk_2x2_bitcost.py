@@ -27,6 +27,11 @@ def process_group_topk_2x2(
     block_size: int = 2,
     group_block_scores: Optional[List[np.ndarray]] = None,
     good_mask: Optional[List[bool]] = None,
+    anchor_idx: int = 0,
+    anchor_strategy: str = "fixed_anchor",
+    event_aggregation: bool = False,
+    event_aggregation_bins: int = 4,
+    event_aggregation_min_blocks: int = 8,
 ) -> Tuple[Dict[str, Any], np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     p = int(patch)
     b = int(max(1, int(block_size)))
@@ -43,7 +48,8 @@ def process_group_topk_2x2(
 
     if good_mask is None:
         good_mask = [not frame_is_bad(fr) for fr in group_frames_bgr]
-    if not good_mask[0]:
+    anchor_idx = int(max(0, min(len(group_frames_bgr) - 1, int(anchor_idx))))
+    if str(anchor_strategy) == "fixed_anchor" and anchor_idx == 0 and not good_mask[0]:
         for swap_i in range(1, len(good_mask)):
             if good_mask[swap_i]:
                 group_frames_bgr[0], group_frames_bgr[swap_i] = group_frames_bgr[swap_i], group_frames_bgr[0]
@@ -53,6 +59,13 @@ def process_group_topk_2x2(
                     group_block_scores[0], group_block_scores[swap_i] = group_block_scores[swap_i], group_block_scores[0]
                 good_mask[0], good_mask[swap_i] = good_mask[swap_i], good_mask[0]
                 break
+    elif not good_mask[anchor_idx]:
+        for swap_i in range(len(good_mask)):
+            if int(swap_i) == int(anchor_idx):
+                continue
+            if good_mask[swap_i]:
+                anchor_idx = int(swap_i)
+                break
 
     total_patches = int(images_per_group) * int(s_full)
     block_budget = max(0, int((total_patches - s_full) // block_patch_count))
@@ -61,19 +74,21 @@ def process_group_topk_2x2(
     src_pos_list: List[List[int]] = []
     src_fid_list: List[int] = []
 
-    iframe_bgr = group_frames_bgr[0]
-    iframe_fid = int(group_frame_ids[0])
+    iframe_bgr = group_frames_bgr[anchor_idx]
+    iframe_fid = int(group_frame_ids[anchor_idx])
     for bh, bw_idx in iter_blocks_in_raster(hb, wb, block_size=b):
         for ph, pw in block_to_patches(bh, bw_idx, block_size=b):
             patches_list.append(extract_patch_bgr(iframe_bgr, ph, pw, patch=p))
             src_pos_list.append([iframe_fid, int(ph), int(pw)])
             src_fid_list.append(iframe_fid)
-            keep_patch_mask[0, int(ph), int(pw)] = 1
+            keep_patch_mask[anchor_idx, int(ph), int(pw)] = 1
 
     scores_all: List[np.ndarray] = []
     t_all: List[np.ndarray] = []
     idx_all: List[np.ndarray] = []
-    for t in range(1, len(group_frames_bgr)):
+    for t in range(len(group_frames_bgr)):
+        if t == anchor_idx:
+            continue
         if not good_mask[t]:
             continue
         if group_block_scores is not None:
@@ -88,6 +103,7 @@ def process_group_topk_2x2(
 
     selected_blocks_by_frame: Dict[int, List[Tuple[int, int]]] = {}
     selected_scores_by_frame: Dict[int, List[float]] = {}
+    event_debug: Optional[Dict[str, Any]] = None
     selected_score_sum = 0.0
     selected_score_mean = 0.0
     if scores_all and block_budget > 0:
@@ -95,7 +111,51 @@ def process_group_topk_2x2(
         t_cat = np.concatenate(t_all)
         idx_cat = np.concatenate(idx_all)
         k = min(block_budget, len(scores_cat))
-        if k < len(scores_cat):
+        if bool(event_aggregation):
+            bins = max(1, int(event_aggregation_bins))
+            min_blocks = max(0, int(event_aggregation_min_blocks))
+            selected_parts: List[np.ndarray] = []
+            selected_mask = np.zeros((len(scores_cat),), dtype=bool)
+            unique_t = sorted(set(int(x) for x in t_cat.tolist()))
+            bin_records: List[Dict[str, Any]] = []
+            if unique_t and min_blocks > 0:
+                for bin_i, t_bin in enumerate(np.array_split(np.asarray(unique_t, dtype=np.int32), bins)):
+                    if t_bin.size == 0:
+                        continue
+                    cand_mask = np.isin(t_cat, t_bin)
+                    cand_idx = np.where(cand_mask & (~selected_mask))[0]
+                    keep_n = int(min(min_blocks, max(0, k - int(selected_mask.sum())), cand_idx.size))
+                    if keep_n <= 0:
+                        continue
+                    if keep_n < cand_idx.size:
+                        local = cand_idx[np.argpartition(-scores_cat[cand_idx], kth=keep_n - 1)[:keep_n]]
+                    else:
+                        local = cand_idx
+                    selected_mask[local] = True
+                    selected_parts.append(local)
+                    bin_records.append({
+                        "bin": int(bin_i),
+                        "frames": [int(x) for x in t_bin.tolist()],
+                        "selected_blocks": int(local.size),
+                        "score_sum": float(scores_cat[local].sum()) if local.size else 0.0,
+                    })
+            remaining = int(max(0, k - int(selected_mask.sum())))
+            if remaining > 0:
+                rest_idx = np.where(~selected_mask)[0]
+                if remaining < rest_idx.size:
+                    rest = rest_idx[np.argpartition(-scores_cat[rest_idx], kth=remaining - 1)[:remaining]]
+                else:
+                    rest = rest_idx
+                selected_parts.append(rest)
+            topk_idx = np.concatenate(selected_parts) if selected_parts else np.zeros((0,), dtype=np.int64)
+            event_debug = {
+                "bins": int(bins),
+                "min_blocks": int(min_blocks),
+                "reserved_blocks": int(sum(int(r["selected_blocks"]) for r in bin_records)),
+                "global_fill_blocks": int(max(0, topk_idx.size - sum(int(r["selected_blocks"]) for r in bin_records))),
+                "bin_records": bin_records,
+            }
+        elif k < len(scores_cat):
             topk_idx = np.argpartition(-scores_cat, kth=k - 1)[:k]
         else:
             topk_idx = np.arange(len(scores_cat))
@@ -113,7 +173,9 @@ def process_group_topk_2x2(
         for tt in selected_blocks_by_frame:
             selected_blocks_by_frame[tt].sort(key=lambda x: (x[0], x[1]))
 
-    for t in range(1, len(group_frames_bgr)):
+    for t in range(len(group_frames_bgr)):
+        if t == anchor_idx:
+            continue
         if not good_mask[t]:
             continue
         fr_bgr = group_frames_bgr[t]
@@ -186,6 +248,16 @@ def process_group_topk_2x2(
             for k in selected_blocks_by_frame.keys()
         },
     }
+    if event_debug is not None:
+        meta["event_aggregation"] = True
+        meta["event_aggregation_debug"] = event_debug
+    if str(anchor_strategy) == "adaptive_anchor":
+        meta.update({
+            "group_id": int(group_idx),
+            "anchor_frame_id": int(iframe_fid),
+            "anchor_idx": int(anchor_idx),
+            "anchor_strategy": str(anchor_strategy),
+        })
     return (
         meta,
         keep_patch_mask.astype(np.uint8),
