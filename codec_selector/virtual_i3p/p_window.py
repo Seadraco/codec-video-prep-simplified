@@ -536,66 +536,28 @@ def process_p_window_bitcost(
         # Default: at least 20% of canvas
         min_group_budget = max(1, total_group_budget // 5)
 
-    # Compute accumulated scores and group_best_frame
-    if use_temporal_accumulation:
-        acc_scores, group_best_frame = temporal_accumulation_with_tracking(
-            group_scores_list,
-            [int(x) for x in window_frame_ids],
-            decay=float(decay),
-        )
-    else:
-        acc_scores = np.max(np.stack(group_scores_list, axis=0), axis=0)
-        group_best_frame = {}
-        for i, gs in enumerate(group_scores_list):
-            fid = int(window_frame_ids[i])
-            for gh_idx in range(gs.shape[0]):
-                for gw_idx in range(gs.shape[1]):
-                    key = (gh_idx, gw_idx)
-                    if key not in group_best_frame:
-                        group_best_frame[key] = fid
+    # ---- Dense selection: every patch position gets the best-frame patch ----
+    # Stack patch scores: (num_frames, hb, wb)
+    patch_scores_stack = np.stack(patch_scores_list, axis=0)  # (T, hb, wb)
+    num_frames_win, hb, wb = patch_scores_stack.shape
 
-    default_fid = int(window_frame_ids[0]) if window_frame_ids else 0
+    # For each patch position, find the frame with highest score
+    best_frame_indices = np.argmax(patch_scores_stack, axis=0)  # (hb, wb)
+    best_scores = np.max(patch_scores_stack, axis=0)  # (hb, wb)
 
-    # Use seed-growth strategy for spatially compact selection
-    selected = _select_groups_seed_growth(
-        acc_scores=acc_scores,
-        group_best_frame=group_best_frame,
-        target_groups=int(total_group_budget),
-        default_fid=default_fid,
-        num_seeds=4,
-    )
-
-    # Ensure minimum patch constraint
-    selected_set = set((int(s[1]), int(s[2])) for s in selected)
-    if len(selected_set) < min_group_budget:
-        selected_set, selected = _fill_with_connectivity(
-            selected_set=selected_set,
-            selected=selected,
-            acc_scores=acc_scores,
-            group_best_frame=group_best_frame,
-            min_groups=int(min_group_budget),
-            default_fid=default_fid,
-        )
-        selected.sort(key=lambda x: (int(x[0]), int(x[1]), int(x[2])))
-
-    # Expand groups to individual patches
-    b = int(max(1, int(group_size)))
+    # Build selected_patches for ALL positions (dense, no black holes)
     selected_patches: List[Dict[str, Any]] = []
-
-    for fid, gh, gw, score in selected:
-        # Each group expands to b*b patches
-        for dh in range(b):
-            for dw in range(b):
-                ph = gh * b + dh
-                pw = gw * b + dw
-                selected_patches.append({
-                    "frame_id": int(fid),
-                    "patch_y": int(ph),
-                    "patch_x": int(pw),
-                    "group_h": int(gh),
-                    "group_w": int(gw),
-                    "score": float(score),
-                })
+    for ph in range(hb):
+        for pw in range(wb):
+            t_best = int(best_frame_indices[ph, pw])
+            fid = int(window_frame_ids[t_best])
+            score = float(best_scores[ph, pw])
+            selected_patches.append({
+                "frame_id": int(fid),
+                "patch_y": int(ph),
+                "patch_x": int(pw),
+                "score": float(score),
+            })
 
     # Score stats from accumulated scores
     if use_temporal_accumulation:
@@ -603,15 +565,21 @@ def process_p_window_bitcost(
     else:
         acc_scores = np.max(np.stack(group_scores_list, axis=0), axis=0)
 
+    # Build per-patch best-frame map for debug
+    patch_best_frame: Dict[str, int] = {}
+    for patch in selected_patches:
+        key = f"{patch['patch_y']}_{patch['patch_x']}"
+        patch_best_frame[key] = patch["frame_id"]
+
     return {
         "selected_patches": selected_patches,
-        "group_best_frame": {f"{k[0]}_{k[1]}": int(v) for k, v in group_best_frame.items()},
+        "group_best_frame": patch_best_frame,
         "window_score_stats": {
-            "mean": float(acc_scores.mean()),
-            "max": float(acc_scores.max()),
-            "min": float(acc_scores.min()),
+            "mean": float(best_scores.mean()),
+            "max": float(best_scores.max()),
+            "min": float(best_scores.min()),
         },
         "num_frames": len(window_frame_ids),
-        "num_selected_groups": len(selected),
-        "group_scores_list": group_scores_list,  # For debug visualization
+        "num_selected_groups": len(selected_patches),
+        "group_scores_list": group_scores_list,
     }
