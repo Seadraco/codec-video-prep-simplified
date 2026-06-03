@@ -158,6 +158,73 @@ def _get_neighbor_coords(gh: int, gw: int, gh_max: int, gw_max: int) -> List[Tup
     return neighbors
 
 
+def _select_groups_seed_growth(
+    acc_scores: np.ndarray,
+    group_best_frame: Dict[Tuple[int, int], int],
+    target_groups: int,
+    default_fid: int,
+    num_seeds: int = 4,
+) -> List[Tuple[int, int, int, float]]:
+    """Select groups using seed-growth strategy for spatial compactness.
+
+    1. Pick top-N high-score seeds (N=num_seeds)
+    2. Iteratively grow outward from existing selections:
+       always pick the highest-scoring unselected neighbor of any selected group
+    3. When no neighbors left, fall back to highest-scoring remaining group globally
+
+    This produces a few large connected blobs instead of many tiny scattered groups.
+    """
+    gh, gw = acc_scores.shape
+    total_groups = gh * gw
+    target = min(int(target_groups), total_groups)
+    if target <= 0:
+        return []
+
+    selected_set: set = set()
+    selected: List[Tuple[int, int, int, float]] = []
+
+    # Phase 1: pick seeds from global top-k
+    seeds = select_topk_groups(acc_scores, k=min(num_seeds, target))
+    for gh_idx, gw_idx, score in seeds:
+        key = (gh_idx, gw_idx)
+        if key not in selected_set:
+            selected_set.add(key)
+            fid = group_best_frame.get(key, default_fid)
+            selected.append((int(fid), gh_idx, gw_idx, float(score)))
+
+    # Phase 2: grow outward iteratively
+    while len(selected_set) < target:
+        # Collect all unselected neighbors of selected groups
+        candidate_neighbors: Dict[Tuple[int, int], float] = {}
+        for (sg_h, sg_w) in selected_set:
+            for nh, nw in _get_neighbor_coords(sg_h, sg_w, gh, gw):
+                if (nh, nw) not in selected_set:
+                    candidate_neighbors[(nh, nw)] = acc_scores[nh, nw]
+
+        if candidate_neighbors:
+            # Pick highest-scoring neighbor
+            best_key = max(candidate_neighbors.keys(), key=lambda k: candidate_neighbors[k])
+            best_score = float(candidate_neighbors[best_key])
+        else:
+            # No neighbors left: pick highest remaining globally
+            flat = acc_scores.reshape(-1).copy()
+            for (sh, sw) in selected_set:
+                flat[sh * gw + sw] = -1.0
+            best_idx = int(np.argmax(flat))
+            if flat[best_idx] < 0:
+                break  # All groups selected
+            best_key = (best_idx // gw, best_idx % gw)
+            best_score = float(flat[best_idx])
+
+        selected_set.add(best_key)
+        fid = group_best_frame.get(best_key, default_fid)
+        selected.append((int(fid), best_key[0], best_key[1], best_score))
+
+    # Sort by frame_id, then group position for consistent ordering
+    selected.sort(key=lambda x: (int(x[0]), int(x[1]), int(x[2])))
+    return selected
+
+
 def _fill_with_connectivity(
     selected_set: set,
     selected: List[Tuple[int, int, int, float]],
@@ -469,52 +536,38 @@ def process_p_window_bitcost(
         # Default: at least 20% of canvas
         min_group_budget = max(1, total_group_budget // 5)
 
-    # Select groups
-    if use_temporal_balance:
-        selected, group_best_frame = select_groups_temporal_balance(
-            group_scores_list=group_scores_list,
-            frame_ids=[int(x) for x in window_frame_ids],
-            total_budget=int(total_group_budget),
-            num_buckets=int(num_buckets_per_p_window),
-            balance_ratio=float(temporal_balance_ratio),
+    # Compute accumulated scores and group_best_frame
+    if use_temporal_accumulation:
+        acc_scores, group_best_frame = temporal_accumulation_with_tracking(
+            group_scores_list,
+            [int(x) for x in window_frame_ids],
             decay=float(decay),
-            use_accumulation=bool(use_temporal_accumulation),
         )
-        # Get accumulated scores for connectivity fill
-        if use_temporal_accumulation:
-            acc_scores = temporal_accumulation_group_scores(group_scores_list, decay=float(decay))
-        else:
-            acc_scores = np.max(np.stack(group_scores_list, axis=0), axis=0)
     else:
-        # Simple global top-k on accumulated scores
-        if use_temporal_accumulation:
-            acc_scores, group_best_frame = temporal_accumulation_with_tracking(
-                group_scores_list,
-                [int(x) for x in window_frame_ids],
-                decay=float(decay),
-            )
-        else:
-            acc_scores = np.max(np.stack(group_scores_list, axis=0), axis=0)
-            group_best_frame = {}
-            for i, gs in enumerate(group_scores_list):
-                fid = int(window_frame_ids[i])
-                for gh_idx in range(gs.shape[0]):
-                    for gw_idx in range(gs.shape[1]):
-                        key = (gh_idx, gw_idx)
-                        if key not in group_best_frame:
-                            group_best_frame[key] = fid
+        acc_scores = np.max(np.stack(group_scores_list, axis=0), axis=0)
+        group_best_frame = {}
+        for i, gs in enumerate(group_scores_list):
+            fid = int(window_frame_ids[i])
+            for gh_idx in range(gs.shape[0]):
+                for gw_idx in range(gs.shape[1]):
+                    key = (gh_idx, gw_idx)
+                    if key not in group_best_frame:
+                        group_best_frame[key] = fid
 
-        topk = select_topk_groups(acc_scores, k=total_group_budget)
-        selected = []
-        for gh_idx, gw_idx, score in topk:
-            fid = group_best_frame.get((gh_idx, gw_idx), int(window_frame_ids[0]))
-            selected.append((int(fid), gh_idx, gw_idx, float(score)))
-        selected.sort(key=lambda x: (int(x[0]), int(x[1]), int(x[2])))
+    default_fid = int(window_frame_ids[0]) if window_frame_ids else 0
 
-    # Apply minimum patch constraint with connectivity-aware fill
+    # Use seed-growth strategy for spatially compact selection
+    selected = _select_groups_seed_growth(
+        acc_scores=acc_scores,
+        group_best_frame=group_best_frame,
+        target_groups=int(total_group_budget),
+        default_fid=default_fid,
+        num_seeds=4,
+    )
+
+    # Ensure minimum patch constraint
     selected_set = set((int(s[1]), int(s[2])) for s in selected)
     if len(selected_set) < min_group_budget:
-        default_fid = int(window_frame_ids[0]) if window_frame_ids else 0
         selected_set, selected = _fill_with_connectivity(
             selected_set=selected_set,
             selected=selected,
