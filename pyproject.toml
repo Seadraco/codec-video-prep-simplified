@@ -33,7 +33,7 @@ dependencies = [
     "numpy>=1.23,<2.0; python_version < '3.13'",
     "numpy>=2.1,<2.3; python_version >= '3.13'",
     "opencv-python-headless<4.12",
-    "Pillow",
+    "Pillow>=10,<12",
 ]
 
 [project.scripts]
