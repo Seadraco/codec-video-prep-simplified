@@ -13,3 +13,5 @@
   NumPy 2.x while Python 3.10–3.12 retain the public NumPy 1.x dependency.
 - Constrain Pillow below 12 so aarch64 installations use a published
   manylinux2014 wheel instead of attempting a source build.
+- Provide the `codec-video-prep-legacy-exact` command alias expected by the
+  official LLaVA-OneVision-2 `lmms-eval` wrapper.

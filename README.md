@@ -76,6 +76,24 @@ Verify the installation:
 codec-video-prep-doctor
 ```
 
+### Use with the official OV2 `lmms-eval` branch
+
+The package installs `codec-video-prep-legacy-exact` as a compatibility alias,
+so the official model wrapper does not need a source-code change:
+
+```bash
+python -m pip uninstall -y codec-video-prep codec-video-prep-legacy-exact
+python -m pip install /path/to/codec_video_prep-0.2.5.post1-*.whl
+
+export CODEC_SELECTOR_MODE=diverse_mixed_simple
+export CODEC_DEDUP_DESCRIPTOR=pooled4
+export ONLINE_CODEC_CACHE_DIR=/path/to/a/new/simplified_codec_cache
+```
+
+Use a new `ONLINE_CODEC_CACHE_DIR` when comparing selectors. The official cache
+key does not include `CODEC_SELECTOR_MODE` or `CODEC_DEDUP_DESCRIPTOR`, so an
+existing public-baseline cache would otherwise be reused.
+
 ### Public baseline from PyPI
 
 ```bash

@@ -38,6 +38,7 @@ dependencies = [
 
 [project.scripts]
 codec-video-prep = "codec_video_prep.cli:main"
+codec-video-prep-legacy-exact = "codec_video_prep.cli:main"
 codec-video-prep-doctor = "codec_video_prep.doctor:main"
 cv-preinfer = "compressed_video_preinfer.cli:main"
 cv-preinfer-doctor = "compressed_video_preinfer.doctor:main"
