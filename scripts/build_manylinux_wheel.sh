@@ -7,6 +7,14 @@ PY_TAG="${PY_TAG:-cp310-cp310}"
 PIP_INDEX_URL="${PIP_INDEX_URL:-}"
 PIP_TRUSTED_HOST="${PIP_TRUSTED_HOST:-}"
 REUSE_FFMPEG="${REUSE_FFMPEG:-0}"
+case "$PY_TAG" in
+  cp313-*)
+    NUMPY_BUILD_SPEC="${NUMPY_BUILD_SPEC:-numpy==2.2.6}"
+    ;;
+  *)
+    NUMPY_BUILD_SPEC="${NUMPY_BUILD_SPEC:-numpy==1.26.4}"
+    ;;
+esac
 
 DOCKER_ENV=()
 if [[ -n "$PIP_INDEX_URL" ]]; then
@@ -16,6 +24,7 @@ if [[ -n "$PIP_TRUSTED_HOST" ]]; then
   DOCKER_ENV+=("-e" "PIP_TRUSTED_HOST=$PIP_TRUSTED_HOST")
 fi
 DOCKER_ENV+=("-e" "REUSE_FFMPEG=$REUSE_FFMPEG")
+DOCKER_ENV+=("-e" "NUMPY_BUILD_SPEC=$NUMPY_BUILD_SPEC")
 FFMPEG_BUILD_SCRIPT="${FFMPEG_BUILD_SCRIPT:-build_pixel_ffmpeg.sh}"
 DOCKER_ENV+=("-e" "FFMPEG_BUILD_SCRIPT=$FFMPEG_BUILD_SCRIPT")
 
@@ -30,7 +39,7 @@ docker run --rm \
     if [[ \"\${REUSE_FFMPEG:-0}\" != \"1\" ]]; then
       rm -rf build build_ffmpeg_install src/codec_video_prep/libs
     fi
-    /opt/python/$PY_TAG/bin/python -m pip install -U pip setuptools wheel build numpy
+    /opt/python/$PY_TAG/bin/python -m pip install -U pip setuptools wheel build \"\$NUMPY_BUILD_SPEC\"
     if [[ \"\${REUSE_FFMPEG:-0}\" == \"1\" && -d build_ffmpeg_install/lib && -d src/codec_video_prep/libs ]]; then
       echo 'Reusing existing patched FFmpeg build.'
     else

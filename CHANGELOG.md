@@ -8,3 +8,6 @@
 - Deduplicate adjacent same-position Blocks with `pooled4` or `full` descriptors.
 - Backfill by bit-cost order to preserve the exact Canvas and token budget.
 - Preserve the public selector as the default and leave Anchor behavior unchanged.
+- Build eight Linux wheels for Python 3.10–3.13 on x86_64 and aarch64.
+- Use conditional NumPy dependencies so the Python 3.13 wheels install with
+  NumPy 2.x while Python 3.10–3.12 retain the public NumPy 1.x dependency.

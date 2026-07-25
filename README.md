@@ -479,7 +479,8 @@ The old import path and CLI names are kept as aliases:
 ## Requirements
 
 - Python ≥ 3.10
-- numpy >= 1.23, < 2.0
+- Python 3.10–3.12: numpy >= 1.23, < 2.0
+- Python 3.13: numpy >= 2.1, < 2.3
 - opencv-python-headless < 4.12
 - Pillow
 - Patched FFmpeg shared libraries (bundled in the wheel or built from `build_pixel_ffmpeg.sh`)
