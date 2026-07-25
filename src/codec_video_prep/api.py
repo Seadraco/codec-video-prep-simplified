@@ -79,6 +79,8 @@ def run_preinfer(
     parallel_segments: int = 0,
     threads_per_segment: int = 4,
     segment_guard_frames: int = 30,
+    selector_mode: str = "topk_2x2_bitcost",
+    dedup_descriptor: str = "pooled4",
 ) -> PreinferResult:
     """Run the optimized H.264/HEVC bitcost readiness preprocessing path."""
     config = PreinferConfig(
@@ -118,6 +120,8 @@ def run_preinfer(
         event_aggregation=event_aggregation,
         event_aggregation_bins=event_aggregation_bins,
         event_aggregation_min_blocks=event_aggregation_min_blocks,
+        selector_mode=selector_mode,
+        dedup_descriptor=dedup_descriptor,
         parallel_decode_cv_reader=parallel_decode_cv_reader,
         decode_backend=decode_backend,
         parallel_segments=parallel_segments,
@@ -129,6 +133,8 @@ def run_preinfer(
 
 def run_preinfer_config(config: PreinferConfig) -> PreinferResult:
     _configure_native_threads(config)
+    selector_mode = os.environ.get("CODEC_SELECTOR_MODE", str(config.selector_mode))
+    dedup_descriptor = os.environ.get("CODEC_DEDUP_DESCRIPTOR", str(config.dedup_descriptor))
     cfg = BitcostReadinessConfig(
         video=str(config.video),
         out_dir=str(config.out_dir),
@@ -170,6 +176,8 @@ def run_preinfer_config(config: PreinferConfig) -> PreinferResult:
         event_aggregation=bool(config.event_aggregation),
         event_aggregation_bins=int(config.event_aggregation_bins),
         event_aggregation_min_blocks=int(config.event_aggregation_min_blocks),
+        selector_mode=str(selector_mode),
+        dedup_descriptor=str(dedup_descriptor),
         parallel_decode_cv_reader=bool(config.parallel_decode_cv_reader),
         decode_backend=str(config.decode_backend),
         parallel_segments=int(config.parallel_segments),

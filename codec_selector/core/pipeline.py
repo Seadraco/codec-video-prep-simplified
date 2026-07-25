@@ -25,6 +25,7 @@ from codec_selector.plugins.groupers.readiness import (
 from codec_selector.plugins.packers.collage import save_canvases, save_mask_video
 from codec_selector.plugins.samplers.basic import sample_frames
 from codec_selector.plugins.scorers.bitcost import bitcost_items_to_score_maps
+from codec_selector.plugins.selectors.diverse_mixed_simple import process_group_diverse_mixed_simple
 from codec_selector.plugins.selectors.topk_2x2_bitcost import process_group_topk_2x2
 from codec_selector.codec_patch_gop.utils import ensure_dir, sha1_8
 from codec_selector.codec_patch_gop.video_probe import ffprobe_keyframe_frame_ids, mp4_keyframe_frame_ids
@@ -684,22 +685,33 @@ def run_bitcost_readiness(config: BitcostReadinessConfig) -> PipelineResult:
                     f"reason: center_rank={int(anchor_debug.get('center_rank', 0))} "
                     f"bitcost_rank={int(anchor_debug.get('bitcost_rank', 0))}"
                 )
-        group_meta, keep_patch_mask, images_rgb, patch_pos, src_pos, _img_ptr = process_group_topk_2x2(
-            group_idx=int(group_idx),
-            group_frame_ids=group_frame_ids,
-            group_frames_bgr=group_frames,
-            group_scores=group_scores,
-            images_per_group=int(cfg.images_per_group),
-            patch=int(cfg.patch),
-            block_size=int(cfg.block_size),
-            group_block_scores=group_block_scores,
-            good_mask=group_good_mask,
-            anchor_idx=int(anchor_idx),
-            anchor_strategy=str(anchor_strategy),
-            event_aggregation=bool(cfg.event_aggregation),
-            event_aggregation_bins=int(cfg.event_aggregation_bins),
-            event_aggregation_min_blocks=int(cfg.event_aggregation_min_blocks),
-        )
+        selector_kwargs = {
+            "group_idx": int(group_idx),
+            "group_frame_ids": group_frame_ids,
+            "group_frames_bgr": group_frames,
+            "group_scores": group_scores,
+            "images_per_group": int(cfg.images_per_group),
+            "patch": int(cfg.patch),
+            "block_size": int(cfg.block_size),
+            "group_block_scores": group_block_scores,
+            "good_mask": group_good_mask,
+            "anchor_idx": int(anchor_idx),
+            "anchor_strategy": str(anchor_strategy),
+        }
+        if str(cfg.selector_mode) == "diverse_mixed_simple":
+            group_meta, keep_patch_mask, images_rgb, patch_pos, src_pos, _img_ptr = (
+                process_group_diverse_mixed_simple(
+                    **selector_kwargs,
+                    dedup_descriptor=str(cfg.dedup_descriptor),
+                )
+            )
+        else:
+            group_meta, keep_patch_mask, images_rgb, patch_pos, src_pos, _img_ptr = process_group_topk_2x2(
+                **selector_kwargs,
+                event_aggregation=bool(cfg.event_aggregation),
+                event_aggregation_bins=int(cfg.event_aggregation_bins),
+                event_aggregation_min_blocks=int(cfg.event_aggregation_min_blocks),
+            )
         if anchor_debug is not None:
             group_meta["anchor_debug"] = anchor_debug
 
@@ -824,6 +836,8 @@ def run_bitcost_readiness(config: BitcostReadinessConfig) -> PipelineResult:
         "event_aggregation": bool(cfg.event_aggregation),
         "event_aggregation_bins": int(cfg.event_aggregation_bins),
         "event_aggregation_min_blocks": int(cfg.event_aggregation_min_blocks),
+        "selector_mode": str(cfg.selector_mode),
+        "dedup_descriptor": str(cfg.dedup_descriptor),
         "mask_video_sbs": str(Path(sbs_video_path).name) if sbs_video_path is not None else None,
         "mask_video_only": str(Path(masked_video_path).name) if masked_video_path is not None else None,
         "patch": int(cfg.patch),

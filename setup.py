@@ -53,8 +53,8 @@ package_dir = {
 
 setup(
     name="codec-video-prep",
-    version="0.2.5",
-    description="Codec-aware video preprocessing for training and inference",
+    version="0.2.5.post1",
+    description="Codec-aware video preprocessing with simplified diverse block selection",
     python_requires=">=3.10",
     install_requires=[
         "numpy>=1.23,<2.0",

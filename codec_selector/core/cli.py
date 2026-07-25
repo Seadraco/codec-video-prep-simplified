@@ -51,6 +51,8 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--event_aggregation", default=False, action=argparse.BooleanOptionalAction)
     ap.add_argument("--event_aggregation_bins", default=4, type=int)
     ap.add_argument("--event_aggregation_min_blocks", default=8, type=int)
+    ap.add_argument("--selector_mode", default="topk_2x2_bitcost", choices=["topk_2x2_bitcost", "diverse_mixed_simple"])
+    ap.add_argument("--dedup_descriptor", default="pooled4", choices=["pooled4", "full"])
     ap.add_argument("--readiness_sum_threshold", default=0.0, type=float)
     ap.add_argument("--readiness_sum_threshold_mode", default="legacy", choices=["legacy", "fixed", "auto", "clamped_sqrt_bpppf"])
     ap.add_argument("--readiness_norm_sum_threshold", default=1050000.0, type=float)

@@ -123,6 +123,8 @@ class BitcostReadinessConfig:
     segment_guard_frames: int = 30
 
     extra: Dict[str, Any] = field(default_factory=dict)
+    selector_mode: str = "topk_2x2_bitcost"
+    dedup_descriptor: str = "pooled4"
 
     def normalized(self) -> "BitcostReadinessConfig":
         self.frame_sampling_mode = str(self.frame_sampling_mode).lower().strip()
@@ -151,6 +153,14 @@ class BitcostReadinessConfig:
         self.event_aggregation = bool(self.event_aggregation)
         self.event_aggregation_bins = max(1, int(self.event_aggregation_bins))
         self.event_aggregation_min_blocks = max(0, int(self.event_aggregation_min_blocks))
+        self.selector_mode = str(self.selector_mode).lower().strip()
+        self.dedup_descriptor = str(self.dedup_descriptor).lower().strip()
+        if self.selector_mode not in {"topk_2x2_bitcost", "diverse_mixed_simple"}:
+            raise ValueError(f"unsupported selector_mode: {self.selector_mode}")
+        if self.dedup_descriptor not in {"pooled4", "full"}:
+            raise ValueError(f"unsupported dedup_descriptor: {self.dedup_descriptor}")
+        if self.selector_mode == "diverse_mixed_simple" and self.event_aggregation:
+            raise ValueError("event_aggregation is only supported by selector_mode=topk_2x2_bitcost")
         self.patch = int(max(1, int(self.patch)))
         self.block_size = int(max(1, int(self.block_size)))
         return self

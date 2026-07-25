@@ -80,6 +80,12 @@ def build_parser() -> argparse.ArgumentParser:
                     help="Temporal bins used for event aggregation")
     ap.add_argument("--event_aggregation_min_blocks", type=int, default=8,
                     help="Minimum transition blocks reserved per non-empty event bin")
+    ap.add_argument("--selector_mode", default="topk_2x2_bitcost",
+                    choices=["topk_2x2_bitcost", "diverse_mixed_simple"],
+                    help="Block selector")
+    ap.add_argument("--dedup_descriptor", default="pooled4",
+                    choices=["pooled4", "full"],
+                    help="Adjacent-block descriptor; full uses the native block resolution")
     ap.add_argument("--parallel_decode_cv_reader", action="store_true",
                     help="Parallelize decode and cv_reader")
     ap.add_argument("--decode_backend", default="cv_reader_pixels",

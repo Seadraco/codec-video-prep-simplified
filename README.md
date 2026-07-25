@@ -1,6 +1,55 @@
-# codec-video-prep (v0.2.5)
+# codec-video-prep-simplified (v0.2.5.post1)
 
 Codec-aware video preprocessing for training and inference. Extracts codec-level bitcost information from **H.264 / HEVC / VP9** videos and turns them into patch-canvases ready for downstream vision models.
+
+This repository is a minimal research fork of
+[`YunyaoYan/codec-video-prep`](https://github.com/YunyaoYan/codec-video-prep)
+at commit `77e8e91`. Decoder patches, frame sampling, readiness grouping,
+Anchor selection, Canvas packing, padding, and position metadata are unchanged.
+The fork adds one opt-in Block selector, `diverse_mixed_simple`.
+
+## Research selector
+
+The public `topk_2x2_bitcost` selector remains the default. Enable the research
+selector explicitly:
+
+```bash
+export CODEC_SELECTOR_MODE=diverse_mixed_simple
+export CODEC_DEDUP_DESCRIPTOR=pooled4
+```
+
+For the native-resolution descriptor, which is 28×28 pixels when
+`patch=14` and `block_size=2`:
+
+```bash
+export CODEC_DEDUP_DESCRIPTOR=full
+```
+
+The same options are available from the CLI:
+
+```bash
+codec-video-prep \
+  --video /path/to/video.mp4 \
+  --out_dir ./preinfer_out \
+  --selector_mode diverse_mixed_simple \
+  --dedup_descriptor pooled4
+```
+
+The selector reserves 75% of the non-Anchor Block budget for public bit-cost
+ranking and 25% for a fixed diversity ranking. Diversity combines Anchor-relative
+appearance novelty and edge strength with equal weights. Adjacent sampled frames
+are deduplicated only at the same spatial Block position. Rejected candidates are
+backfilled by bit-cost order, so the number of Canvases, patches, and visual tokens
+does not change.
+
+| Mode | Behavior |
+|---|---|
+| `topk_2x2_bitcost` | Unmodified public selector |
+| `diverse_mixed_simple` + `pooled4` | Mixed selection with a 4×4 grayscale dedup descriptor |
+| `diverse_mixed_simple` + `full` | Mixed selection with the native grayscale Block resolution |
+
+`event_aggregation` remains available with the public selector. It is intentionally
+not combined with `diverse_mixed_simple`, keeping the research change isolated.
 
 ## What it does
 
@@ -14,10 +63,11 @@ Codec-aware video preprocessing for training and inference. Extracts codec-level
 
 ## Install
 
-### From PyPI (recommended)
+### From this repository's GitHub Release
 
 ```bash
-python -m pip install codec-video-prep
+python -m pip uninstall -y codec-video-prep codec-video-prep-legacy-exact
+python -m pip install /path/to/codec_video_prep-0.2.5.post1-*.whl
 ```
 
 Verify the installation:
@@ -26,10 +76,10 @@ Verify the installation:
 codec-video-prep-doctor
 ```
 
-### From wheel file
+### Public baseline from PyPI
 
 ```bash
-python -m pip install codec_video_prep-0.2.5-*.whl
+python -m pip install codec-video-prep
 ```
 
 ### Build from source
@@ -124,6 +174,13 @@ codec-video-prep \
 | `--bitcost_log_scale` / `--no_bitcost_log_scale` | `True` | Apply log scale to bitcost scores |
 | `--disable_target_only` | `False` | Disable decoder-internal target-frame-only bitcost pruning |
 
+#### Block Selection
+
+| Parameter | Default | Description |
+|---|---|---|
+| `--selector_mode` | `topk_2x2_bitcost` | Public baseline or `diverse_mixed_simple` |
+| `--dedup_descriptor` | `pooled4` | `pooled4` or native-resolution `full`; used only by the research selector |
+
 #### Decode Backend
 
 | Parameter | Default | Description |
@@ -170,7 +227,7 @@ After running, the output directory contains:
 | `canvas_*.jpg` | Packed patch canvases |
 | `meta.json` | Full metadata, config, timing breakdown, and group info |
 | `frame_ids.npy` | Sampled frame indices |
-| `src_patch_position.npy` | Source patch positions `(group, patch, y1, x1, y2, x2)` |
+| `src_patch_position.npy` | Source patch positions `(source_frame, patch_h, patch_w)` |
 
 ### Decode backends
 
@@ -232,6 +289,8 @@ result = run_preinfer(
     parallel_segments=4,                  # 0 = serial
     threads_per_segment=4,
     segment_guard_frames=30,
+    selector_mode="diverse_mixed_simple",
+    dedup_descriptor="pooled4",
 )
 
 print(result.out_dir)       # output directory path
@@ -391,7 +450,7 @@ REUSE_FFMPEG=1 PY_TAG=cp313-cp313 bash scripts/build_manylinux_wheel.sh
 Output:
 
 ```
-wheelhouse/codec_video_prep-0.2.5-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.whl
+wheelhouse/codec_video_prep-0.2.5.post1-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.whl
 ```
 
 ## Diagnostics

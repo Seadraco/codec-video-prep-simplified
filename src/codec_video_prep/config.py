@@ -49,3 +49,5 @@ class PreinferConfig:
     parallel_segments: int = 0
     threads_per_segment: int = 4
     segment_guard_frames: int = 30
+    selector_mode: str = "topk_2x2_bitcost"
+    dedup_descriptor: str = "pooled4"
