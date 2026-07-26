@@ -12,6 +12,12 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 
 from codec_selector.core.config import BitcostReadinessConfig, GroupSpec, PipelineResult
+from codec_selector.core.common_cache import (
+    common_cache_key,
+    common_cache_lock,
+    load_common_cache,
+    save_common_cache,
+)
 from codec_selector.core.decode import decode_frames_bgr_ffmpeg
 from codec_selector.core.frame_ops import normalize_score_maps_frame_mean_floor, prepare_frames, resolve_prepared_frame_geometry
 from codec_selector.core.probe import probe_video
@@ -504,35 +510,146 @@ def run_bitcost_readiness(config: BitcostReadinessConfig) -> PipelineResult:
     timing["resolve_frame_geometry"] = elapsed_since(t0)
 
     use_cv_pixels = str(cfg.decode_backend) == "cv_reader_pixels"
-    t0 = time.perf_counter()
-    if use_cv_pixels:
-        bitcost_items, frames_bgr, timing["cv_reader_fetch_bitcost"] = timed_fetch_bitcost_and_pixels()
-        timing["decode_frames"] = 0.0
-        timing["decode_and_cv_reader_serial_wall"] = elapsed_since(t0)
-    elif bool(cfg.parallel_decode_cv_reader):
-        with ThreadPoolExecutor(max_workers=2) as executor:
-            decode_future = executor.submit(timed_decode_frames)
-            bitcost_future = executor.submit(timed_fetch_bitcost)
-            frames_bgr, timing["decode_frames"] = decode_future.result()
-            bitcost_items, timing["cv_reader_fetch_bitcost"] = bitcost_future.result()
-        timing["decode_and_cv_reader_parallel_wall"] = elapsed_since(t0)
-    else:
-        frames_bgr, timing["decode_frames"] = timed_decode_frames()
-        bitcost_items, timing["cv_reader_fetch_bitcost"] = timed_fetch_bitcost()
-        timing["decode_and_cv_reader_serial_wall"] = elapsed_since(t0)
-    if len(frames_bgr) != len(frame_ids):
-        raise RuntimeError(f"decoded {len(frames_bgr)} frames, expected {len(frame_ids)}")
 
-    t0 = time.perf_counter()
-    frames_bgr, resize_h, resize_w, pad_bottom, pad_right = prepare_frames(
-        frames_bgr,
-        patch=int(cfg.patch),
-        max_dim=int(cfg.max_dim),
-        block_size=int(cfg.block_size),
-        max_pixels=int(cfg.max_pixels),
-        no_resize=bool(cfg.no_resize),
-    )
-    timing["prepare_frames"] = elapsed_since(t0)
+    def decode_and_prepare_inputs() -> tuple[
+        List[Dict[str, Any]],
+        List[np.ndarray],
+        int,
+        int,
+        int,
+        int,
+    ]:
+        t_decode = time.perf_counter()
+        if use_cv_pixels:
+            items, frames, timing["cv_reader_fetch_bitcost"] = (
+                timed_fetch_bitcost_and_pixels()
+            )
+            timing["decode_frames"] = 0.0
+            timing["decode_and_cv_reader_serial_wall"] = elapsed_since(t_decode)
+        elif bool(cfg.parallel_decode_cv_reader):
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                decode_future = executor.submit(timed_decode_frames)
+                bitcost_future = executor.submit(timed_fetch_bitcost)
+                frames, timing["decode_frames"] = decode_future.result()
+                items, timing["cv_reader_fetch_bitcost"] = bitcost_future.result()
+            timing["decode_and_cv_reader_parallel_wall"] = elapsed_since(t_decode)
+        else:
+            frames, timing["decode_frames"] = timed_decode_frames()
+            items, timing["cv_reader_fetch_bitcost"] = timed_fetch_bitcost()
+            timing["decode_and_cv_reader_serial_wall"] = elapsed_since(t_decode)
+        if len(frames) != len(frame_ids):
+            raise RuntimeError(
+                f"decoded {len(frames)} frames, expected {len(frame_ids)}"
+            )
+
+        t_prepare = time.perf_counter()
+        frames, resize_h_value, resize_w_value, pad_bottom_value, pad_right_value = (
+            prepare_frames(
+                frames,
+                patch=int(cfg.patch),
+                max_dim=int(cfg.max_dim),
+                block_size=int(cfg.block_size),
+                max_pixels=int(cfg.max_pixels),
+                no_resize=bool(cfg.no_resize),
+            )
+        )
+        timing["prepare_frames"] = elapsed_since(t_prepare)
+        return (
+            items,
+            frames,
+            int(resize_h_value),
+            int(resize_w_value),
+            int(pad_bottom_value),
+            int(pad_right_value),
+        )
+
+    common_cache_payload: Optional[Dict[str, Any]] = None
+    common_cache_path: Optional[Path] = None
+    common_cache_hit = False
+    if cfg.common_cache_dir:
+        video_path = Path(cfg.video).resolve()
+        video_stat = video_path.stat()
+        common_cache_payload = {
+            "format": 1,
+            "video": str(video_path),
+            "video_size": int(video_stat.st_size),
+            "video_mtime_ns": int(video_stat.st_mtime_ns),
+            "frame_ids": [int(value) for value in frame_ids],
+            "prepared_hw": [int(prepared_h), int(prepared_w)],
+            "frame_sampling_mode": str(cfg.frame_sampling_mode),
+            "sample_fps": float(cfg.sample_fps),
+            "num_sampled_frames": int(cfg.num_sampled_frames),
+            "avoid_keyframes": bool(cfg.avoid_keyframes),
+            "avoid_keyframe_offset": int(cfg.avoid_keyframe_offset),
+            "patch": int(cfg.patch),
+            "block_size": int(cfg.block_size),
+            "max_dim": int(cfg.max_dim),
+            "max_pixels": int(cfg.max_pixels),
+            "no_resize": bool(cfg.no_resize),
+            "decode_backend": str(cfg.decode_backend),
+            "ffmpeg_preprocess_frames": bool(cfg.ffmpeg_preprocess_frames),
+            "parallel_decode_cv_reader": bool(cfg.parallel_decode_cv_reader),
+            "parallel_segments": int(cfg.parallel_segments),
+            "threads_per_segment": int(cfg.threads_per_segment),
+            "segment_guard_frames": int(cfg.segment_guard_frames),
+            "bitcost_grid": str(cfg.bitcost_grid),
+            "cv_reader_thread_count": os.environ.get(
+                "CV_READER_FAST_THREAD_COUNT", "1"
+            ),
+            "cv_reader_thread_type": os.environ.get(
+                "CV_READER_FAST_THREAD_TYPE", "auto"
+            ),
+            "disable_target_only": os.environ.get("CVR_DISABLE_TARGET_ONLY", "0"),
+        }
+        cache_key = common_cache_key(common_cache_payload)
+        common_cache_root = Path(cfg.common_cache_dir)
+        common_cache_path = common_cache_root / cache_key[:2] / cache_key
+        t_cache = time.perf_counter()
+        with common_cache_lock(common_cache_root, cache_key):
+            loaded = load_common_cache(
+                common_cache_path,
+                expected_key_payload=common_cache_payload,
+                expected_frame_ids=frame_ids,
+            )
+            if loaded is None:
+                (
+                    bitcost_items,
+                    frames_bgr,
+                    resize_h,
+                    resize_w,
+                    pad_bottom,
+                    pad_right,
+                ) = decode_and_prepare_inputs()
+                t_store = time.perf_counter()
+                save_common_cache(
+                    common_cache_path,
+                    key_payload=common_cache_payload,
+                    frame_ids=frame_ids,
+                    frames_bgr=frames_bgr,
+                    bitcost_items=bitcost_items,
+                )
+                timing["common_cache_store"] = elapsed_since(t_store)
+            else:
+                frames_bgr, bitcost_items, _cache_meta = loaded
+                resize_h = int(resize_h_target)
+                resize_w = int(resize_w_target)
+                pad_bottom = int(pad_bottom_target)
+                pad_right = int(pad_right_target)
+                timing["cv_reader_fetch_bitcost"] = 0.0
+                timing["decode_frames"] = 0.0
+                timing["prepare_frames"] = 0.0
+                common_cache_hit = True
+        timing["common_cache_lookup_and_wait"] = elapsed_since(t_cache)
+    else:
+        (
+            bitcost_items,
+            frames_bgr,
+            resize_h,
+            resize_w,
+            pad_bottom,
+            pad_right,
+        ) = decode_and_prepare_inputs()
+    timing["common_cache_hit"] = 1.0 if common_cache_hit else 0.0
     h1, w1 = frames_bgr[0].shape[:2]
 
     # Precompute good_mask for all frames to avoid repeated frame_is_bad checks in group loop
@@ -707,6 +824,15 @@ def run_bitcost_readiness(config: BitcostReadinessConfig) -> PipelineResult:
                     dedup_enabled=bool(cfg.dedup_enabled),
                     dedup_descriptor=str(cfg.dedup_descriptor),
                     dedup_threshold=cfg.dedup_threshold,
+                    dedup_threshold_mode=str(cfg.dedup_threshold_mode),
+                    dedup_quantile=float(cfg.dedup_quantile),
+                    diversity_activation_mode=str(
+                        cfg.diversity_activation_mode
+                    ),
+                    diversity_min_sample_stride_seconds=float(
+                        cfg.diversity_min_sample_stride_seconds
+                    ),
+                    source_fps=float(meta.fps),
                 )
             )
         else:
@@ -980,6 +1106,17 @@ def run_bitcost_readiness(config: BitcostReadinessConfig) -> PipelineResult:
         "dedup_enabled": bool(cfg.dedup_enabled),
         "dedup_descriptor": str(cfg.dedup_descriptor),
         "dedup_threshold": cfg.dedup_threshold,
+        "dedup_threshold_mode": str(cfg.dedup_threshold_mode),
+        "dedup_quantile": float(cfg.dedup_quantile),
+        "diversity_activation_mode": str(cfg.diversity_activation_mode),
+        "diversity_min_sample_stride_seconds": float(
+            cfg.diversity_min_sample_stride_seconds
+        ),
+        "common_cache": {
+            "enabled": bool(cfg.common_cache_dir),
+            "hit": bool(common_cache_hit),
+            "path": str(common_cache_path) if common_cache_path is not None else None,
+        },
         "selector_summary": selector_summary,
         "mask_video_sbs": str(Path(sbs_video_path).name) if sbs_video_path is not None else None,
         "mask_video_only": str(Path(masked_video_path).name) if masked_video_path is not None else None,

@@ -94,11 +94,16 @@ def run_preinfer(
     threads_per_segment: int = 4,
     segment_guard_frames: int = 30,
     selector_mode: str = "topk_2x2_bitcost",
-    diversity_fraction: float = 0.10,
+    diversity_fraction: float = 0.30,
     novelty_weight: float = 0.5,
     dedup_enabled: bool = True,
     dedup_descriptor: str = "pooled4",
     dedup_threshold: float | None = None,
+    dedup_threshold_mode: str = "group_quantile",
+    dedup_quantile: float = 0.15,
+    diversity_activation_mode: str = "sample_stride",
+    diversity_min_sample_stride_seconds: float = 5.0,
+    common_cache_dir: str = "",
 ) -> PreinferResult:
     """Run the optimized H.264/HEVC bitcost readiness preprocessing path."""
     config = PreinferConfig(
@@ -144,6 +149,13 @@ def run_preinfer(
         dedup_enabled=dedup_enabled,
         dedup_descriptor=dedup_descriptor,
         dedup_threshold=dedup_threshold,
+        dedup_threshold_mode=dedup_threshold_mode,
+        dedup_quantile=dedup_quantile,
+        diversity_activation_mode=diversity_activation_mode,
+        diversity_min_sample_stride_seconds=(
+            diversity_min_sample_stride_seconds
+        ),
+        common_cache_dir=common_cache_dir,
         parallel_decode_cv_reader=parallel_decode_cv_reader,
         decode_backend=decode_backend,
         parallel_segments=parallel_segments,
@@ -166,6 +178,25 @@ def run_preinfer_config(config: PreinferConfig) -> PreinferResult:
     dedup_descriptor = os.environ.get("CODEC_DEDUP_DESCRIPTOR", str(config.dedup_descriptor))
     dedup_threshold = _environment_optional_float(
         "CODEC_DEDUP_THRESHOLD", config.dedup_threshold
+    )
+    dedup_threshold_mode = os.environ.get(
+        "CODEC_DEDUP_THRESHOLD_MODE", str(config.dedup_threshold_mode)
+    )
+    dedup_quantile = float(
+        os.environ.get("CODEC_DEDUP_QUANTILE", str(config.dedup_quantile))
+    )
+    diversity_activation_mode = os.environ.get(
+        "CODEC_DIVERSITY_ACTIVATION_MODE",
+        str(config.diversity_activation_mode),
+    )
+    diversity_min_sample_stride_seconds = float(
+        os.environ.get(
+            "CODEC_DIVERSITY_MIN_SAMPLE_STRIDE_SECONDS",
+            str(config.diversity_min_sample_stride_seconds),
+        )
+    )
+    common_cache_dir = os.environ.get(
+        "CODEC_COMMON_CACHE_DIR", str(config.common_cache_dir)
     )
     cfg = BitcostReadinessConfig(
         video=str(config.video),
@@ -214,6 +245,13 @@ def run_preinfer_config(config: PreinferConfig) -> PreinferResult:
         dedup_enabled=bool(dedup_enabled),
         dedup_descriptor=str(dedup_descriptor),
         dedup_threshold=dedup_threshold,
+        dedup_threshold_mode=str(dedup_threshold_mode),
+        dedup_quantile=float(dedup_quantile),
+        diversity_activation_mode=str(diversity_activation_mode),
+        diversity_min_sample_stride_seconds=float(
+            diversity_min_sample_stride_seconds
+        ),
+        common_cache_dir=str(common_cache_dir),
         parallel_decode_cv_reader=bool(config.parallel_decode_cv_reader),
         decode_backend=str(config.decode_backend),
         parallel_segments=int(config.parallel_segments),

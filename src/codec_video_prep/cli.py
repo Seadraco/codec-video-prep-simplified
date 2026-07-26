@@ -4,12 +4,25 @@ from __future__ import annotations
 
 import argparse
 import json
+from importlib.metadata import PackageNotFoundError, version
 
 from .api import run_preinfer
 
 
+def _installed_version() -> str:
+    try:
+        return version("codec-video-prep")
+    except PackageNotFoundError:
+        return "0.2.5.post4"
+
+
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(description="Run optimized codec-aware video preprocessing.")
+    ap.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {_installed_version()}",
+    )
     # basic params
     ap.add_argument("--video", required=True)
     ap.add_argument("--out_dir", required=True)
@@ -83,7 +96,7 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--selector_mode", default="topk_2x2_bitcost",
                     choices=["topk_2x2_bitcost", "diverse_mixed_simple"],
                     help="Block selector")
-    ap.add_argument("--diversity_fraction", type=float, default=0.10,
+    ap.add_argument("--diversity_fraction", type=float, default=0.30,
                     help="Fraction of non-Anchor Blocks selected by diversity ranking")
     ap.add_argument("--novelty_weight", type=float, default=0.5,
                     help="Novelty weight in diversity ranking; Edge uses 1-weight")
@@ -95,6 +108,18 @@ def build_parser() -> argparse.ArgumentParser:
                     help="Adjacent-block descriptor; full uses the native block resolution")
     ap.add_argument("--dedup_threshold", type=float, default=None,
                     help="Adjacent MAD threshold; defaults depend on descriptor mode")
+    ap.add_argument("--dedup_threshold_mode", default="group_quantile",
+                    choices=["absolute", "group_quantile"],
+                    help="Use a fixed MAD threshold or a per-group MAD quantile")
+    ap.add_argument("--dedup_quantile", type=float, default=0.15,
+                    help="Per-group adjacent MAD quantile used by group_quantile mode")
+    ap.add_argument("--diversity_activation_mode", default="sample_stride",
+                    choices=["always", "sample_stride"],
+                    help="Always use the mixed selector or gate it by sampled-frame stride")
+    ap.add_argument("--diversity_min_sample_stride_seconds", type=float, default=5.0,
+                    help="Minimum median sampling interval in seconds for sample_stride activation")
+    ap.add_argument("--common_cache_dir", default="",
+                    help="Optional selector-independent decoded-frame/BitCost cache")
     ap.add_argument("--parallel_decode_cv_reader", action="store_true",
                     help="Parallelize decode and cv_reader")
     ap.add_argument("--decode_backend", default="cv_reader_pixels",

@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.2.5.post4
+
+- Add an adaptive `sample_stride` gate: use the exact public Top-K path for
+  densely sampled videos and enable the research selector only when the median
+  sampled-frame interval reaches a configurable threshold.
+- Replace the dataset-sensitive absolute deduplication threshold with an
+  optional per-group adjacent-MAD quantile.
+- Set the opt-in research profile to 30% diversity, 15% group-quantile
+  deduplication, and a 5-second activation threshold.
+- Validate the activation threshold across 8/16/32/64 Canvas budgets; the
+  stricter threshold preserves sparse-video gains while avoiding a Rapid c64
+  regression.
+- Record source FPS, sampled-frame interval, activation decision, and control
+  reason in every group of `meta.json`.
+- Include all adaptive-selector parameters in the bundled LLaVA cache key.
+- Support `--version` on both the public CLI and the legacy compatibility
+  alias so an installed wheel can be audited without running preprocessing.
+- Preserve `topk_2x2_bitcost` as the package default and keep the disabled
+  research path byte-identical to the public selector.
+
 ## 0.2.5.post3
 
 - Set the opt-in research selector's validated default mix to 90% public

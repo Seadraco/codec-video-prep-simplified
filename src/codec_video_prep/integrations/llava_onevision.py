@@ -63,11 +63,16 @@ class LlavaCodecPreprocessConfig:
     threads_per_segment: int = 4
     segment_guard_frames: int = 30
     selector_mode: str = "topk_2x2_bitcost"
-    diversity_fraction: float = 0.10
+    diversity_fraction: float = 0.30
     novelty_weight: float = 0.5
     dedup_enabled: bool = True
     dedup_descriptor: str = "pooled4"
     dedup_threshold: Optional[float] = None
+    dedup_threshold_mode: str = "group_quantile"
+    dedup_quantile: float = 0.15
+    diversity_activation_mode: str = "sample_stride"
+    diversity_min_sample_stride_seconds: float = 5.0
+    common_cache_dir: str = ""
 
     @classmethod
     def from_legacy_kwargs(
@@ -106,7 +111,7 @@ class LlavaCodecPreprocessConfig:
             threads_per_segment=int(kwargs.get("codec_threads_per_segment", 4)),
             segment_guard_frames=int(kwargs.get("codec_segment_guard_frames", 30)),
             selector_mode=str(kwargs.get("codec_selector_mode", "topk_2x2_bitcost")),
-            diversity_fraction=float(kwargs.get("codec_diversity_fraction", 0.10)),
+            diversity_fraction=float(kwargs.get("codec_diversity_fraction", 0.30)),
             novelty_weight=float(kwargs.get("codec_novelty_weight", 0.5)),
             dedup_enabled=_as_bool(kwargs.get("codec_dedup_enabled", True)),
             dedup_descriptor=str(kwargs.get("codec_dedup_descriptor", "pooled4")),
@@ -115,6 +120,20 @@ class LlavaCodecPreprocessConfig:
                 if kwargs.get("codec_dedup_threshold") in {None, ""}
                 else float(kwargs["codec_dedup_threshold"])
             ),
+            dedup_threshold_mode=str(
+                kwargs.get("codec_dedup_threshold_mode", "group_quantile")
+            ),
+            dedup_quantile=float(kwargs.get("codec_dedup_quantile", 0.15)),
+            diversity_activation_mode=str(
+                kwargs.get("codec_diversity_activation_mode", "sample_stride")
+            ),
+            diversity_min_sample_stride_seconds=float(
+                kwargs.get(
+                    "codec_diversity_min_sample_stride_seconds",
+                    5.0,
+                )
+            ),
+            common_cache_dir=str(kwargs.get("codec_common_cache_dir", "")),
         )
 
     def validate(self) -> None:
@@ -136,6 +155,20 @@ class LlavaCodecPreprocessConfig:
             raise ValueError("dedup_descriptor must be pooled4 or full")
         if self.dedup_threshold is not None and float(self.dedup_threshold) < 0:
             raise ValueError("dedup_threshold must be >= 0")
+        if self.dedup_threshold_mode not in {"absolute", "group_quantile"}:
+            raise ValueError(
+                "dedup_threshold_mode must be absolute or group_quantile"
+            )
+        if not 0.0 <= float(self.dedup_quantile) <= 1.0:
+            raise ValueError("dedup_quantile must be between 0 and 1")
+        if self.diversity_activation_mode not in {"always", "sample_stride"}:
+            raise ValueError(
+                "diversity_activation_mode must be always or sample_stride"
+            )
+        if float(self.diversity_min_sample_stride_seconds) < 0.0:
+            raise ValueError(
+                "diversity_min_sample_stride_seconds must be >= 0"
+            )
 
     def num_sampled_frames(self, total_frames:Optional[int]= None) -> int:
         target_groups = int(self.target_canvas) // int(self.images_per_group)
@@ -173,6 +206,10 @@ class LlavaOneVisionCodecPreprocessor:
             f"|selector={cfg.selector_mode}|div={cfg.diversity_fraction}"
             f"|novelty={cfg.novelty_weight}|dedup={int(cfg.dedup_enabled)}"
             f"|descriptor={cfg.dedup_descriptor}|threshold={cfg.dedup_threshold}"
+            f"|threshold_mode={cfg.dedup_threshold_mode}"
+            f"|quantile={cfg.dedup_quantile}"
+            f"|activation={cfg.diversity_activation_mode}"
+            f"|min_stride_sec={cfg.diversity_min_sample_stride_seconds}"
         )
         key = hashlib.md5(raw.encode()).hexdigest()
         return self.cache_root / f"{Path(video).stem}_{key}"
@@ -239,6 +276,15 @@ class LlavaOneVisionCodecPreprocessor:
                 dedup_enabled=bool(cfg.dedup_enabled),
                 dedup_descriptor=str(cfg.dedup_descriptor),
                 dedup_threshold=cfg.dedup_threshold,
+                dedup_threshold_mode=str(cfg.dedup_threshold_mode),
+                dedup_quantile=float(cfg.dedup_quantile),
+                diversity_activation_mode=str(
+                    cfg.diversity_activation_mode
+                ),
+                diversity_min_sample_stride_seconds=float(
+                    cfg.diversity_min_sample_stride_seconds
+                ),
+                common_cache_dir=str(cfg.common_cache_dir),
             )
             if out_dir.exists():
                 shutil.rmtree(out_dir)
