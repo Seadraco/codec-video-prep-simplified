@@ -25,6 +25,19 @@ DEFAULT_DEDUP_THRESHOLDS = {
     "pooled4": 0.025,
     "full": 0.035,
 }
+ADJACENT_MAD_CDF_THRESHOLDS = (
+    0.005,
+    0.010,
+    0.015,
+    0.020,
+    0.025,
+    0.030,
+    0.035,
+    0.040,
+    0.050,
+    0.075,
+    0.100,
+)
 
 
 def _rank01(values: np.ndarray) -> np.ndarray:
@@ -333,6 +346,10 @@ def process_group_diverse_mixed_simple(
         "adjacent_same_position_pairs": 0,
         "adjacent_same_position_duplicates": 0,
         "adjacent_same_position_duplicate_rate": 0.0,
+        "adjacent_mad_count": 0,
+        "adjacent_mad_quantiles": {},
+        "adjacent_mad_cdf": {},
+        "adjacent_mad_fraction_le_threshold": 0.0,
         "selected_bitcost_mean": 0.0,
         "selected_novelty_mean": 0.0,
         "selected_edge_mean": 0.0,
@@ -368,6 +385,40 @@ def process_group_diverse_mixed_simple(
         else:
             raise ValueError(f"unsupported dedup descriptor: {descriptor_mode}")
         dedup_sec = float(time.perf_counter() - dedup_started)
+        adjacent_diff_flat = adjacent_diff.reshape(len(group_frames_bgr), blocks_per_frame)
+        valid_adjacent_parts = [
+            adjacent_diff_flat[frame_idx]
+            for frame_idx in range(1, len(group_frames_bgr))
+            if bool(good_mask[frame_idx - 1]) and bool(good_mask[frame_idx])
+        ]
+        if valid_adjacent_parts:
+            valid_adjacent_mad = np.concatenate(valid_adjacent_parts).astype(
+                np.float32,
+                copy=False,
+            )
+            quantile_values = np.quantile(
+                valid_adjacent_mad,
+                (0.05, 0.10, 0.20, 0.50, 0.80, 0.90, 0.95),
+            )
+            selector_debug.update({
+                "adjacent_mad_count": int(valid_adjacent_mad.size),
+                "adjacent_mad_quantiles": {
+                    name: float(value)
+                    for name, value in zip(
+                        ("p05", "p10", "p20", "p50", "p80", "p90", "p95"),
+                        quantile_values.tolist(),
+                    )
+                },
+                "adjacent_mad_cdf": {
+                    f"{cdf_threshold:.3f}": float(
+                        np.mean(valid_adjacent_mad <= float(cdf_threshold))
+                    )
+                    for cdf_threshold in ADJACENT_MAD_CDF_THRESHOLDS
+                },
+                "adjacent_mad_fraction_le_threshold": float(
+                    np.mean(valid_adjacent_mad <= float(threshold))
+                ),
+            })
 
         selection_started = time.perf_counter()
         target_blocks = min(int(block_budget), int(bitcost_scores.size))
@@ -377,7 +428,6 @@ def process_group_diverse_mixed_simple(
         rejected_mask = np.zeros((bitcost_scores.size,), dtype=bool)
         selected_grid = np.zeros((len(group_frames_bgr), blocks_per_frame), dtype=bool)
         selected_grid[anchor_idx, :] = True
-        adjacent_diff_flat = adjacent_diff.reshape(len(group_frames_bgr), blocks_per_frame)
 
         bitcost_selected, rejected_a, comparisons_a = _select_from_order(
             order=bitcost_order,

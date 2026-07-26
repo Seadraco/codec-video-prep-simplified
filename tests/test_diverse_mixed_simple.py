@@ -80,6 +80,18 @@ def test_selector_keeps_budget_and_metadata_aligned(descriptor: str) -> None:
     assert meta["selector"]["dedup_descriptor"] == descriptor
     assert meta["selector"]["backfill_selected"] > 0
     assert meta["selector"]["dedup_rejected"] > 0
+    assert meta["selector"]["adjacent_mad_count"] > 0
+    assert set(meta["selector"]["adjacent_mad_quantiles"]) == {
+        "p05",
+        "p10",
+        "p20",
+        "p50",
+        "p80",
+        "p90",
+        "p95",
+    }
+    assert "0.025" in meta["selector"]["adjacent_mad_cdf"]
+    assert 0.0 <= meta["selector"]["adjacent_mad_fraction_le_threshold"] <= 1.0
 
     frame_by_id = {frame_id: frame for frame_id, frame in zip(frame_ids, frames)}
     for source, destination in zip(src_pos, patch_pos):

@@ -811,6 +811,53 @@ def run_bitcost_readiness(config: BitcostReadinessConfig) -> PipelineResult:
                 if total_adjacent_pairs
                 else 0.0
             ),
+            "adjacent_mad_count": int(
+                sum(int(group.get("adjacent_mad_count", 0)) for group in selector_groups)
+            ),
+            "mean_adjacent_mad_fraction_le_threshold": float(
+                np.average(
+                    [
+                        float(group.get("adjacent_mad_fraction_le_threshold", 0.0))
+                        for group in selector_groups
+                    ],
+                    weights=[
+                        int(group.get("adjacent_mad_count", 0))
+                        for group in selector_groups
+                    ],
+                )
+                if sum(
+                    int(group.get("adjacent_mad_count", 0))
+                    for group in selector_groups
+                )
+                else 0.0
+            ),
+            "adjacent_mad_cdf": {
+                threshold: float(
+                    sum(
+                        float((group.get("adjacent_mad_cdf") or {}).get(threshold, 0.0))
+                        * int(group.get("adjacent_mad_count", 0))
+                        for group in selector_groups
+                    )
+                    / float(
+                        sum(
+                            int(group.get("adjacent_mad_count", 0))
+                            for group in selector_groups
+                        )
+                    )
+                )
+                for threshold in sorted(
+                    {
+                        threshold
+                        for group in selector_groups
+                        for threshold in (group.get("adjacent_mad_cdf") or {})
+                    }
+                )
+            }
+            if sum(
+                int(group.get("adjacent_mad_count", 0))
+                for group in selector_groups
+            )
+            else {},
             "selected_bitcost_mean": weighted_mean("selected_bitcost_mean"),
             "selected_novelty_mean": weighted_mean("selected_novelty_mean"),
             "selected_edge_mean": weighted_mean("selected_edge_mean"),
