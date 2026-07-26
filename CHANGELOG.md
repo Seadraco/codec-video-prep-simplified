@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.5.post2
+
+- Expose the five simplified selector controls through Python, CLI, and
+  environment variables.
+- Support independent Diversity-only and dedup-only ablations.
+- Add per-group and top-level Canvas selection diagnostics to `meta.json`.
+- Include all selector controls in the bundled LLaVA integration cache key.
+- Keep `topk_2x2_bitcost` as the unchanged default control path.
+
 ## 0.2.5.post1
 
 - Add the opt-in `diverse_mixed_simple` Block selector.

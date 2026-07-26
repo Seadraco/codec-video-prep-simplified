@@ -124,7 +124,11 @@ class BitcostReadinessConfig:
 
     extra: Dict[str, Any] = field(default_factory=dict)
     selector_mode: str = "topk_2x2_bitcost"
+    diversity_fraction: float = 0.25
+    novelty_weight: float = 0.5
+    dedup_enabled: bool = True
     dedup_descriptor: str = "pooled4"
+    dedup_threshold: Optional[float] = None
 
     def normalized(self) -> "BitcostReadinessConfig":
         self.frame_sampling_mode = str(self.frame_sampling_mode).lower().strip()
@@ -154,11 +158,22 @@ class BitcostReadinessConfig:
         self.event_aggregation_bins = max(1, int(self.event_aggregation_bins))
         self.event_aggregation_min_blocks = max(0, int(self.event_aggregation_min_blocks))
         self.selector_mode = str(self.selector_mode).lower().strip()
+        self.diversity_fraction = float(self.diversity_fraction)
+        self.novelty_weight = float(self.novelty_weight)
+        self.dedup_enabled = bool(self.dedup_enabled)
         self.dedup_descriptor = str(self.dedup_descriptor).lower().strip()
+        if self.dedup_threshold is not None:
+            self.dedup_threshold = float(self.dedup_threshold)
         if self.selector_mode not in {"topk_2x2_bitcost", "diverse_mixed_simple"}:
             raise ValueError(f"unsupported selector_mode: {self.selector_mode}")
+        if not 0.0 <= self.diversity_fraction <= 1.0:
+            raise ValueError("diversity_fraction must be between 0 and 1")
+        if not 0.0 <= self.novelty_weight <= 1.0:
+            raise ValueError("novelty_weight must be between 0 and 1")
         if self.dedup_descriptor not in {"pooled4", "full"}:
             raise ValueError(f"unsupported dedup_descriptor: {self.dedup_descriptor}")
+        if self.dedup_threshold is not None and self.dedup_threshold < 0.0:
+            raise ValueError("dedup_threshold must be >= 0")
         if self.selector_mode == "diverse_mixed_simple" and self.event_aggregation:
             raise ValueError("event_aggregation is only supported by selector_mode=topk_2x2_bitcost")
         self.patch = int(max(1, int(self.patch)))

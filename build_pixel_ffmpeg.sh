@@ -28,7 +28,7 @@ patch -p1 < "$PATCHDIR/h264_bitcost_only.patch"
 
 ./configure   --prefix="$INSTALL"   --enable-shared   --disable-static   --disable-programs   --disable-doc   --disable-debug   --enable-avcodec   --enable-avformat   --enable-avutil   --enable-swresample   --enable-swscale   --enable-protocol=file   --enable-demuxer=mov   --enable-demuxer=matroska   --enable-demuxer=h264   --enable-demuxer=hevc   --enable-parser=h264   --enable-parser=hevc   --enable-decoder=h264   --enable-decoder=hevc   --enable-decoder=vp9
 
-NPROC=$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4)
+NPROC=${NPROC:-$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4)}
 make -j"$NPROC"
 make install
 

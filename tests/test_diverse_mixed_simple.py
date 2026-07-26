@@ -144,10 +144,18 @@ def test_config_keeps_public_default_and_validates_new_mode() -> None:
         video="in.mp4",
         out_dir="out",
         selector_mode="DIVERSE_MIXED_SIMPLE",
+        diversity_fraction=0.4,
+        novelty_weight=1.0,
+        dedup_enabled=False,
         dedup_descriptor="FULL",
+        dedup_threshold=0.05,
     ).normalized()
     assert configured.selector_mode == "diverse_mixed_simple"
+    assert configured.diversity_fraction == 0.4
+    assert configured.novelty_weight == 1.0
+    assert configured.dedup_enabled is False
     assert configured.dedup_descriptor == "full"
+    assert configured.dedup_threshold == 0.05
 
     with pytest.raises(ValueError):
         BitcostReadinessConfig(
@@ -156,3 +164,117 @@ def test_config_keeps_public_default_and_validates_new_mode() -> None:
             selector_mode="diverse_mixed_simple",
             event_aggregation=True,
         ).normalized()
+
+    for name, value in (("diversity_fraction", -0.1), ("novelty_weight", 1.1)):
+        with pytest.raises(ValueError):
+            BitcostReadinessConfig(
+                video="in.mp4",
+                out_dir="out",
+                selector_mode="diverse_mixed_simple",
+                **{name: value},
+            ).normalized()
+
+
+@pytest.mark.parametrize(
+    ("diversity_fraction", "dedup_enabled"),
+    [(0.25, False), (0.0, True), (0.25, True)],
+)
+def test_ablation_modes_preserve_budget(
+    diversity_fraction: float,
+    dedup_enabled: bool,
+) -> None:
+    frame_ids, frames, scores, block_scores = _selector_inputs()
+    meta, _, canvases, patch_pos, src_pos, _ = process_group_diverse_mixed_simple(
+        group_idx=0,
+        group_frame_ids=list(frame_ids),
+        group_frames_bgr=[frame.copy() for frame in frames],
+        group_scores=[score.copy() for score in scores],
+        images_per_group=3,
+        patch=14,
+        block_size=2,
+        group_block_scores=[score.copy() for score in block_scores],
+        good_mask=[True] * 4,
+        diversity_fraction=diversity_fraction,
+        dedup_enabled=dedup_enabled,
+    )
+    selector = meta["selector"]
+    assert canvases.shape == (3, 56, 56, 3)
+    assert patch_pos.shape == src_pos.shape == (48, 3)
+    assert selector["target_blocks"] == 8
+    assert (
+        selector["bitcost_selected"]
+        + selector["diversity_selected"]
+        + selector["backfill_selected"]
+        == 8
+    )
+    if not dedup_enabled:
+        assert selector["dedup_rejected"] == 0
+        assert selector["backfill_selected"] == 0
+    if diversity_fraction == 0.0:
+        assert selector["diversity_selected"] == 0
+
+
+def test_zero_diversity_without_dedup_matches_public() -> None:
+    frame_ids, frames, scores, block_scores = _selector_inputs()
+    common = {
+        "group_idx": 0,
+        "group_frame_ids": list(frame_ids),
+        "group_frames_bgr": [frame.copy() for frame in frames],
+        "group_scores": [score.copy() for score in scores],
+        "images_per_group": 3,
+        "patch": 14,
+        "block_size": 2,
+        "group_block_scores": [score.copy() for score in block_scores],
+        "good_mask": [True] * 4,
+    }
+    baseline = process_group_topk_2x2(**common)
+    candidate = process_group_diverse_mixed_simple(
+        **{
+            **common,
+            "group_frame_ids": list(frame_ids),
+            "group_frames_bgr": [frame.copy() for frame in frames],
+            "group_scores": [score.copy() for score in scores],
+            "group_block_scores": [score.copy() for score in block_scores],
+            "good_mask": [True] * 4,
+        },
+        diversity_fraction=0.0,
+        dedup_enabled=False,
+    )
+    for baseline_value, candidate_value in zip(baseline[1:], candidate[1:]):
+        np.testing.assert_array_equal(baseline_value, candidate_value)
+
+
+@pytest.mark.parametrize(
+    ("descriptor", "expected"),
+    [("pooled4", 0.025), ("full", 0.035)],
+)
+def test_default_and_explicit_dedup_thresholds(
+    descriptor: str,
+    expected: float,
+) -> None:
+    frame_ids, frames, scores, block_scores = _selector_inputs()
+    common = {
+        "group_idx": 0,
+        "group_frame_ids": list(frame_ids),
+        "group_frames_bgr": [frame.copy() for frame in frames],
+        "group_scores": [score.copy() for score in scores],
+        "images_per_group": 3,
+        "patch": 14,
+        "group_block_scores": [score.copy() for score in block_scores],
+        "good_mask": [True] * 4,
+        "dedup_descriptor": descriptor,
+    }
+    default = process_group_diverse_mixed_simple(**common)[0]["selector"]
+    explicit = process_group_diverse_mixed_simple(
+        **{
+            **common,
+            "group_frame_ids": list(frame_ids),
+            "group_frames_bgr": [frame.copy() for frame in frames],
+            "group_scores": [score.copy() for score in scores],
+            "group_block_scores": [score.copy() for score in block_scores],
+            "good_mask": [True] * 4,
+        },
+        dedup_threshold=0.123,
+    )[0]["selector"]
+    assert default["dedup_threshold"] == expected
+    assert explicit["dedup_threshold"] == 0.123

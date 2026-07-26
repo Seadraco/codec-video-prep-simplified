@@ -19,11 +19,9 @@ from codec_selector.codec_patch_gop.scoring import patch_scores_to_block_scores,
 from codec_selector.core.registry import selectors
 
 
-BITCOST_FRACTION = 0.75
-DIVERSITY_FRACTION = 0.25
-NOVELTY_WEIGHT = 0.5
-EDGE_WEIGHT = 0.5
-DEDUP_THRESHOLDS = {
+DEFAULT_DIVERSITY_FRACTION = 0.25
+DEFAULT_NOVELTY_WEIGHT = 0.5
+DEFAULT_DEDUP_THRESHOLDS = {
     "pooled4": 0.025,
     "full": 0.035,
 }
@@ -132,6 +130,8 @@ def _select_from_order(
     block_indices: np.ndarray,
     adjacent_diff_flat: np.ndarray,
     threshold: float,
+    dedup_enabled: bool,
+    rejected_mask: np.ndarray,
 ) -> Tuple[List[int], int, int]:
     selected: List[int] = []
     rejected = 0
@@ -143,17 +143,19 @@ def _select_from_order(
             continue
         frame_idx = int(frame_indices[candidate_idx])
         block_idx = int(block_indices[candidate_idx])
-        duplicate, candidate_comparisons = _candidate_is_duplicate(
-            frame_idx=frame_idx,
-            block_idx=block_idx,
-            selected_grid=selected_grid,
-            adjacent_diff_flat=adjacent_diff_flat,
-            threshold=float(threshold),
-        )
-        comparisons += int(candidate_comparisons)
-        if duplicate:
-            rejected += 1
-            continue
+        if dedup_enabled:
+            duplicate, candidate_comparisons = _candidate_is_duplicate(
+                frame_idx=frame_idx,
+                block_idx=block_idx,
+                selected_grid=selected_grid,
+                adjacent_diff_flat=adjacent_diff_flat,
+                threshold=float(threshold),
+            )
+            comparisons += int(candidate_comparisons)
+            if duplicate:
+                rejected += 1
+                rejected_mask[candidate_idx] = True
+                continue
         selected_mask[candidate_idx] = True
         selected_grid[frame_idx, block_idx] = True
         selected.append(int(candidate_idx))
@@ -172,12 +174,63 @@ def process_group_diverse_mixed_simple(
     good_mask: Optional[List[bool]] = None,
     anchor_idx: int = 0,
     anchor_strategy: str = "fixed_anchor",
+    diversity_fraction: float = DEFAULT_DIVERSITY_FRACTION,
+    novelty_weight: float = DEFAULT_NOVELTY_WEIGHT,
+    dedup_enabled: bool = True,
     dedup_descriptor: str = "pooled4",
+    dedup_threshold: Optional[float] = None,
 ) -> Tuple[Dict[str, Any], np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     started = time.perf_counter()
     p = int(patch)
     b = int(max(1, int(block_size)))
     block_patch_count = int(b * b)
+    diversity_fraction = float(diversity_fraction)
+    novelty_weight = float(novelty_weight)
+    dedup_enabled = bool(dedup_enabled)
+    dedup_descriptor = str(dedup_descriptor).lower().strip()
+    if not 0.0 <= diversity_fraction <= 1.0:
+        raise ValueError("diversity_fraction must be between 0 and 1")
+    if not 0.0 <= novelty_weight <= 1.0:
+        raise ValueError("novelty_weight must be between 0 and 1")
+    if dedup_descriptor not in DEFAULT_DEDUP_THRESHOLDS:
+        raise ValueError(f"unsupported dedup descriptor: {dedup_descriptor}")
+    threshold = (
+        float(DEFAULT_DEDUP_THRESHOLDS[dedup_descriptor])
+        if dedup_threshold is None
+        else float(dedup_threshold)
+    )
+    if threshold < 0.0:
+        raise ValueError("dedup_threshold must be >= 0")
+    if diversity_fraction == 0.0 and not dedup_enabled:
+        from codec_selector.plugins.selectors.topk_2x2_bitcost import (
+            process_group_topk_2x2,
+        )
+
+        result = process_group_topk_2x2(
+            group_idx=group_idx,
+            group_frame_ids=group_frame_ids,
+            group_frames_bgr=group_frames_bgr,
+            group_scores=group_scores,
+            images_per_group=images_per_group,
+            patch=patch,
+            block_size=block_size,
+            group_block_scores=group_block_scores,
+            good_mask=good_mask,
+            anchor_idx=anchor_idx,
+            anchor_strategy=anchor_strategy,
+        )
+        result[0]["selector"] = {
+            "mode": "diverse_mixed_simple",
+            "control_path": "topk_2x2_bitcost",
+            "bitcost_fraction": 1.0,
+            "diversity_fraction": 0.0,
+            "novelty_weight": float(novelty_weight),
+            "edge_weight": float(1.0 - novelty_weight),
+            "dedup_enabled": False,
+            "dedup_descriptor": str(dedup_descriptor),
+            "dedup_threshold": float(threshold),
+        }
+        return result
     h1, w1 = group_frames_bgr[0].shape[:2]
     hb, wb = h1 // p, w1 // p
     if hb % b != 0 or wb % b != 0:
@@ -257,19 +310,32 @@ def process_group_diverse_mixed_simple(
     selected_scores_by_frame: Dict[int, List[float]] = {}
     selector_debug: Dict[str, Any] = {
         "mode": "diverse_mixed_simple",
-        "bitcost_fraction": float(BITCOST_FRACTION),
-        "diversity_fraction": float(DIVERSITY_FRACTION),
-        "novelty_weight": float(NOVELTY_WEIGHT),
-        "edge_weight": float(EDGE_WEIGHT),
+        "bitcost_fraction": float(1.0 - diversity_fraction),
+        "diversity_fraction": float(diversity_fraction),
+        "novelty_weight": float(novelty_weight),
+        "edge_weight": float(1.0 - novelty_weight),
+        "dedup_enabled": bool(dedup_enabled),
         "dedup_descriptor": str(dedup_descriptor),
-        "dedup_threshold": float(DEDUP_THRESHOLDS[str(dedup_descriptor)]),
+        "dedup_threshold": float(threshold),
         "candidate_blocks": 0,
         "target_blocks": 0,
         "bitcost_selected": 0,
         "diversity_selected": 0,
         "backfill_selected": 0,
         "dedup_rejected": 0,
+        "dedup_rejected_unique": 0,
         "dedup_comparisons": 0,
+        "unique_source_frames": 0,
+        "unique_spatial_positions": 0,
+        "temporal_distribution_entropy": 0.0,
+        "temporal_distribution_entropy_normalized": 0.0,
+        "max_blocks_per_frame_fraction": 0.0,
+        "adjacent_same_position_pairs": 0,
+        "adjacent_same_position_duplicates": 0,
+        "adjacent_same_position_duplicate_rate": 0.0,
+        "selected_bitcost_mean": 0.0,
+        "selected_novelty_mean": 0.0,
+        "selected_edge_mean": 0.0,
     }
     selected_score_sum = 0.0
     selected_score_mean = 0.0
@@ -282,8 +348,8 @@ def process_group_diverse_mixed_simple(
         frame_indices = np.concatenate(frame_parts)
         block_indices = np.concatenate(block_parts)
         diversity_scores = (
-            NOVELTY_WEIGHT * _rank01(novelty_scores)
-            + EDGE_WEIGHT * _rank01(edge_scores)
+            novelty_weight * _rank01(novelty_scores)
+            + (1.0 - novelty_weight) * _rank01(edge_scores)
         ).astype(np.float32)
         bitcost_order = _score_order(bitcost_scores, frame_indices, block_indices)
         diversity_order = _score_order(diversity_scores, frame_indices, block_indices)
@@ -291,7 +357,7 @@ def process_group_diverse_mixed_simple(
 
         dedup_started = time.perf_counter()
         descriptor_mode = str(dedup_descriptor)
-        if descriptor_mode == "pooled4":
+        if not dedup_enabled or descriptor_mode == "pooled4":
             adjacent_diff = _adjacent_diff_pooled4(descriptors)
         elif descriptor_mode == "full":
             adjacent_diff = _adjacent_diff_full(
@@ -305,13 +371,13 @@ def process_group_diverse_mixed_simple(
 
         selection_started = time.perf_counter()
         target_blocks = min(int(block_budget), int(bitcost_scores.size))
-        diversity_quota = int(np.floor(float(target_blocks) * DIVERSITY_FRACTION + 0.5))
+        diversity_quota = int(np.floor(float(target_blocks) * diversity_fraction + 0.5))
         bitcost_quota = int(target_blocks - diversity_quota)
         selected_mask = np.zeros((bitcost_scores.size,), dtype=bool)
+        rejected_mask = np.zeros((bitcost_scores.size,), dtype=bool)
         selected_grid = np.zeros((len(group_frames_bgr), blocks_per_frame), dtype=bool)
         selected_grid[anchor_idx, :] = True
         adjacent_diff_flat = adjacent_diff.reshape(len(group_frames_bgr), blocks_per_frame)
-        threshold = float(DEDUP_THRESHOLDS[descriptor_mode])
 
         bitcost_selected, rejected_a, comparisons_a = _select_from_order(
             order=bitcost_order,
@@ -322,17 +388,25 @@ def process_group_diverse_mixed_simple(
             block_indices=block_indices,
             adjacent_diff_flat=adjacent_diff_flat,
             threshold=threshold,
+            dedup_enabled=dedup_enabled,
+            rejected_mask=rejected_mask,
         )
-        diversity_selected, rejected_b, comparisons_b = _select_from_order(
-            order=diversity_order,
-            limit=max(0, target_blocks - len(bitcost_selected)),
-            selected_mask=selected_mask,
-            selected_grid=selected_grid,
-            frame_indices=frame_indices,
-            block_indices=block_indices,
-            adjacent_diff_flat=adjacent_diff_flat,
-            threshold=threshold,
-        )
+        diversity_selected: List[int] = []
+        rejected_b = 0
+        comparisons_b = 0
+        if diversity_quota > 0:
+            diversity_selected, rejected_b, comparisons_b = _select_from_order(
+                order=diversity_order,
+                limit=max(0, target_blocks - len(bitcost_selected)),
+                selected_mask=selected_mask,
+                selected_grid=selected_grid,
+                frame_indices=frame_indices,
+                block_indices=block_indices,
+                adjacent_diff_flat=adjacent_diff_flat,
+                threshold=threshold,
+                dedup_enabled=dedup_enabled,
+                rejected_mask=rejected_mask,
+            )
         selected_indices = list(bitcost_selected) + list(diversity_selected)
         backfill_selected: List[int] = []
         if len(selected_indices) < target_blocks:
@@ -353,6 +427,76 @@ def process_group_diverse_mixed_simple(
         if selected_array.size:
             selected_score_sum = float(bitcost_scores[selected_array].sum())
             selected_score_mean = float(bitcost_scores[selected_array].mean())
+            selected_frame_indices = frame_indices[selected_array]
+            selected_block_indices = block_indices[selected_array]
+            frame_counts = np.bincount(
+                selected_frame_indices,
+                minlength=len(group_frames_bgr),
+            ).astype(np.int64)
+            nonzero_frame_counts = frame_counts[frame_counts > 0]
+            probabilities = nonzero_frame_counts.astype(np.float64) / float(selected_array.size)
+            temporal_entropy = float(-(probabilities * np.log(probabilities)).sum())
+            eligible_frame_count = int(
+                sum(
+                    1
+                    for frame_idx, is_good in enumerate(good_mask)
+                    if frame_idx != anchor_idx and bool(is_good)
+                )
+            )
+            entropy_denominator = float(np.log(max(1, eligible_frame_count)))
+            normalized_entropy = (
+                float(temporal_entropy / entropy_denominator)
+                if entropy_denominator > 0.0
+                else 0.0
+            )
+            selected_grid_for_metrics = np.zeros(
+                (len(group_frames_bgr), blocks_per_frame),
+                dtype=bool,
+            )
+            selected_grid_for_metrics[anchor_idx, :] = True
+            selected_grid_for_metrics[selected_frame_indices, selected_block_indices] = True
+            adjacent_pair_count = 0
+            adjacent_duplicate_count = 0
+            for frame_idx in range(1, len(group_frames_bgr)):
+                both_selected = (
+                    selected_grid_for_metrics[frame_idx - 1]
+                    & selected_grid_for_metrics[frame_idx]
+                )
+                pair_count = int(both_selected.sum())
+                if pair_count == 0:
+                    continue
+                adjacent_pair_count += pair_count
+                adjacent_duplicate_count += int(
+                    (
+                        adjacent_diff_flat[frame_idx, both_selected]
+                        <= float(threshold)
+                    ).sum()
+                )
+            source_frame_ids = sorted(
+                {
+                    int(group_frame_ids[int(frame_idx)])
+                    for frame_idx in selected_frame_indices.tolist()
+                }
+            )
+            selector_debug.update({
+                "unique_source_frames": int(len(source_frame_ids)),
+                "selected_source_frame_ids": source_frame_ids,
+                "unique_spatial_positions": int(np.unique(selected_block_indices).size),
+                "temporal_distribution_entropy": float(temporal_entropy),
+                "temporal_distribution_entropy_normalized": float(normalized_entropy),
+                "max_blocks_per_frame_fraction": float(nonzero_frame_counts.max())
+                / float(selected_array.size),
+                "adjacent_same_position_pairs": int(adjacent_pair_count),
+                "adjacent_same_position_duplicates": int(adjacent_duplicate_count),
+                "adjacent_same_position_duplicate_rate": (
+                    float(adjacent_duplicate_count) / float(adjacent_pair_count)
+                    if adjacent_pair_count
+                    else 0.0
+                ),
+                "selected_bitcost_mean": float(bitcost_scores[selected_array].mean()),
+                "selected_novelty_mean": float(novelty_scores[selected_array].mean()),
+                "selected_edge_mean": float(edge_scores[selected_array].mean()),
+            })
         for candidate_idx in selected_indices:
             frame_idx = int(frame_indices[candidate_idx])
             block_idx = int(block_indices[candidate_idx])
@@ -372,6 +516,7 @@ def process_group_diverse_mixed_simple(
             "diversity_selected": int(len(diversity_selected)),
             "backfill_selected": int(len(backfill_selected)),
             "dedup_rejected": int(rejected_a + rejected_b),
+            "dedup_rejected_unique": int(rejected_mask.sum()),
             "dedup_comparisons": int(comparisons_a + comparisons_b),
             "timing_sec": {
                 "descriptor": float(descriptor_sec),

@@ -702,7 +702,11 @@ def run_bitcost_readiness(config: BitcostReadinessConfig) -> PipelineResult:
             group_meta, keep_patch_mask, images_rgb, patch_pos, src_pos, _img_ptr = (
                 process_group_diverse_mixed_simple(
                     **selector_kwargs,
+                    diversity_fraction=float(cfg.diversity_fraction),
+                    novelty_weight=float(cfg.novelty_weight),
+                    dedup_enabled=bool(cfg.dedup_enabled),
                     dedup_descriptor=str(cfg.dedup_descriptor),
+                    dedup_threshold=cfg.dedup_threshold,
                 )
             )
         else:
@@ -733,6 +737,93 @@ def run_bitcost_readiness(config: BitcostReadinessConfig) -> PipelineResult:
         global_img_offset += int(images_rgb.shape[0])
         group_processing_timings.append({"group_idx": int(group_idx), "sec": elapsed_since(t_group_start)})
     timing["process_groups_make_canvases"] = elapsed_since(t0)
+
+    selector_groups = [
+        group["selector"]
+        for group in all_group_meta
+        if isinstance(group.get("selector"), dict)
+    ]
+    selector_summary: Optional[Dict[str, Any]] = None
+    if selector_groups:
+        total_selected = int(sum(int(group.get("target_blocks", 0)) for group in selector_groups))
+        total_adjacent_pairs = int(
+            sum(int(group.get("adjacent_same_position_pairs", 0)) for group in selector_groups)
+        )
+        total_adjacent_duplicates = int(
+            sum(
+                int(group.get("adjacent_same_position_duplicates", 0))
+                for group in selector_groups
+            )
+        )
+
+        def weighted_mean(field: str) -> float:
+            if total_selected <= 0:
+                return 0.0
+            return float(
+                sum(
+                    float(group.get(field, 0.0)) * int(group.get("target_blocks", 0))
+                    for group in selector_groups
+                )
+                / float(total_selected)
+            )
+
+        timing_fields = ("descriptor", "score", "dedup_map", "selection", "total")
+        selector_summary = {
+            "mode": "diverse_mixed_simple",
+            "group_count": int(len(selector_groups)),
+            "target_blocks": int(total_selected),
+            "bitcost_selected": int(
+                sum(int(group.get("bitcost_selected", 0)) for group in selector_groups)
+            ),
+            "diversity_selected": int(
+                sum(int(group.get("diversity_selected", 0)) for group in selector_groups)
+            ),
+            "backfill_selected": int(
+                sum(int(group.get("backfill_selected", 0)) for group in selector_groups)
+            ),
+            "dedup_rejected": int(
+                sum(int(group.get("dedup_rejected", 0)) for group in selector_groups)
+            ),
+            "dedup_rejected_unique": int(
+                sum(int(group.get("dedup_rejected_unique", 0)) for group in selector_groups)
+            ),
+            "dedup_comparisons": int(
+                sum(int(group.get("dedup_comparisons", 0)) for group in selector_groups)
+            ),
+            "mean_unique_source_frames_per_group": float(
+                np.mean([float(group.get("unique_source_frames", 0)) for group in selector_groups])
+            ),
+            "mean_unique_spatial_positions_per_group": float(
+                np.mean(
+                    [float(group.get("unique_spatial_positions", 0)) for group in selector_groups]
+                )
+            ),
+            "mean_temporal_distribution_entropy_normalized": weighted_mean(
+                "temporal_distribution_entropy_normalized"
+            ),
+            "mean_max_blocks_per_frame_fraction": weighted_mean(
+                "max_blocks_per_frame_fraction"
+            ),
+            "adjacent_same_position_pairs": int(total_adjacent_pairs),
+            "adjacent_same_position_duplicates": int(total_adjacent_duplicates),
+            "adjacent_same_position_duplicate_rate": (
+                float(total_adjacent_duplicates) / float(total_adjacent_pairs)
+                if total_adjacent_pairs
+                else 0.0
+            ),
+            "selected_bitcost_mean": weighted_mean("selected_bitcost_mean"),
+            "selected_novelty_mean": weighted_mean("selected_novelty_mean"),
+            "selected_edge_mean": weighted_mean("selected_edge_mean"),
+            "timing_sec": {
+                field: float(
+                    sum(
+                        float((group.get("timing_sec") or {}).get(field, 0.0))
+                        for group in selector_groups
+                    )
+                )
+                for field in timing_fields
+            },
+        }
 
     if not all_canvases:
         raise RuntimeError("no canvases produced")
@@ -837,7 +928,12 @@ def run_bitcost_readiness(config: BitcostReadinessConfig) -> PipelineResult:
         "event_aggregation_bins": int(cfg.event_aggregation_bins),
         "event_aggregation_min_blocks": int(cfg.event_aggregation_min_blocks),
         "selector_mode": str(cfg.selector_mode),
+        "diversity_fraction": float(cfg.diversity_fraction),
+        "novelty_weight": float(cfg.novelty_weight),
+        "dedup_enabled": bool(cfg.dedup_enabled),
         "dedup_descriptor": str(cfg.dedup_descriptor),
+        "dedup_threshold": cfg.dedup_threshold,
+        "selector_summary": selector_summary,
         "mask_video_sbs": str(Path(sbs_video_path).name) if sbs_video_path is not None else None,
         "mask_video_only": str(Path(masked_video_path).name) if masked_video_path is not None else None,
         "patch": int(cfg.patch),
