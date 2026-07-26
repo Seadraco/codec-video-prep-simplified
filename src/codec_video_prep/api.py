@@ -37,6 +37,20 @@ def _configure_native_threads(config: PreinferConfig) -> None:
         os.environ["CVR_DISABLE_TARGET_ONLY"] = "1"
 
 
+def _environment_bool(name: str, default: bool) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return bool(default)
+    return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def _environment_optional_float(name: str, default: float | None) -> float | None:
+    value = os.environ.get(name)
+    if value is None or not value.strip():
+        return default
+    return float(value)
+
+
 def run_preinfer(
     video: str,
     out_dir: str,
@@ -80,7 +94,11 @@ def run_preinfer(
     threads_per_segment: int = 4,
     segment_guard_frames: int = 30,
     selector_mode: str = "topk_2x2_bitcost",
+    diversity_fraction: float = 0.10,
+    novelty_weight: float = 0.5,
+    dedup_enabled: bool = True,
     dedup_descriptor: str = "pooled4",
+    dedup_threshold: float | None = None,
 ) -> PreinferResult:
     """Run the optimized H.264/HEVC bitcost readiness preprocessing path."""
     config = PreinferConfig(
@@ -121,7 +139,11 @@ def run_preinfer(
         event_aggregation_bins=event_aggregation_bins,
         event_aggregation_min_blocks=event_aggregation_min_blocks,
         selector_mode=selector_mode,
+        diversity_fraction=diversity_fraction,
+        novelty_weight=novelty_weight,
+        dedup_enabled=dedup_enabled,
         dedup_descriptor=dedup_descriptor,
+        dedup_threshold=dedup_threshold,
         parallel_decode_cv_reader=parallel_decode_cv_reader,
         decode_backend=decode_backend,
         parallel_segments=parallel_segments,
@@ -134,7 +156,17 @@ def run_preinfer(
 def run_preinfer_config(config: PreinferConfig) -> PreinferResult:
     _configure_native_threads(config)
     selector_mode = os.environ.get("CODEC_SELECTOR_MODE", str(config.selector_mode))
+    diversity_fraction = float(
+        os.environ.get("CODEC_DIVERSITY_FRACTION", str(config.diversity_fraction))
+    )
+    novelty_weight = float(
+        os.environ.get("CODEC_NOVELTY_WEIGHT", str(config.novelty_weight))
+    )
+    dedup_enabled = _environment_bool("CODEC_DEDUP_ENABLED", config.dedup_enabled)
     dedup_descriptor = os.environ.get("CODEC_DEDUP_DESCRIPTOR", str(config.dedup_descriptor))
+    dedup_threshold = _environment_optional_float(
+        "CODEC_DEDUP_THRESHOLD", config.dedup_threshold
+    )
     cfg = BitcostReadinessConfig(
         video=str(config.video),
         out_dir=str(config.out_dir),
@@ -177,7 +209,11 @@ def run_preinfer_config(config: PreinferConfig) -> PreinferResult:
         event_aggregation_bins=int(config.event_aggregation_bins),
         event_aggregation_min_blocks=int(config.event_aggregation_min_blocks),
         selector_mode=str(selector_mode),
+        diversity_fraction=float(diversity_fraction),
+        novelty_weight=float(novelty_weight),
+        dedup_enabled=bool(dedup_enabled),
         dedup_descriptor=str(dedup_descriptor),
+        dedup_threshold=dedup_threshold,
         parallel_decode_cv_reader=bool(config.parallel_decode_cv_reader),
         decode_backend=str(config.decode_backend),
         parallel_segments=int(config.parallel_segments),

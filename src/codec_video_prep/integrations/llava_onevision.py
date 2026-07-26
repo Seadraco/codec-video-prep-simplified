@@ -62,6 +62,12 @@ class LlavaCodecPreprocessConfig:
     parallel_segments: int = 0
     threads_per_segment: int = 4
     segment_guard_frames: int = 30
+    selector_mode: str = "topk_2x2_bitcost"
+    diversity_fraction: float = 0.10
+    novelty_weight: float = 0.5
+    dedup_enabled: bool = True
+    dedup_descriptor: str = "pooled4"
+    dedup_threshold: Optional[float] = None
 
     @classmethod
     def from_legacy_kwargs(
@@ -99,6 +105,16 @@ class LlavaCodecPreprocessConfig:
             parallel_segments=int(kwargs.get("codec_parallel_segments", 0)),
             threads_per_segment=int(kwargs.get("codec_threads_per_segment", 4)),
             segment_guard_frames=int(kwargs.get("codec_segment_guard_frames", 30)),
+            selector_mode=str(kwargs.get("codec_selector_mode", "topk_2x2_bitcost")),
+            diversity_fraction=float(kwargs.get("codec_diversity_fraction", 0.10)),
+            novelty_weight=float(kwargs.get("codec_novelty_weight", 0.5)),
+            dedup_enabled=_as_bool(kwargs.get("codec_dedup_enabled", True)),
+            dedup_descriptor=str(kwargs.get("codec_dedup_descriptor", "pooled4")),
+            dedup_threshold=(
+                None
+                if kwargs.get("codec_dedup_threshold") in {None, ""}
+                else float(kwargs["codec_dedup_threshold"])
+            ),
         )
 
     def validate(self) -> None:
@@ -112,6 +128,14 @@ class LlavaCodecPreprocessConfig:
             raise ValueError("target_canvas must be divisible by images_per_group")
         if int(self.group_size) % int(self.images_per_group) != 0:
             raise ValueError("group_size must be divisible by images_per_group")
+        if not 0.0 <= float(self.diversity_fraction) <= 1.0:
+            raise ValueError("diversity_fraction must be between 0 and 1")
+        if not 0.0 <= float(self.novelty_weight) <= 1.0:
+            raise ValueError("novelty_weight must be between 0 and 1")
+        if self.dedup_descriptor not in {"pooled4", "full"}:
+            raise ValueError("dedup_descriptor must be pooled4 or full")
+        if self.dedup_threshold is not None and float(self.dedup_threshold) < 0:
+            raise ValueError("dedup_threshold must be >= 0")
 
     def num_sampled_frames(self, total_frames:Optional[int]= None) -> int:
         target_groups = int(self.target_canvas) // int(self.images_per_group)
@@ -146,6 +170,9 @@ class LlavaOneVisionCodecPreprocessor:
             f"|mp={cfg.max_pixels}|grid={cfg.bitcost_grid}"
             f"|mode={cfg.grouping_mode}|fmt={cfg.canvas_format}"
             f"|n={cfg.num_sampled_frames(total_frames)}"
+            f"|selector={cfg.selector_mode}|div={cfg.diversity_fraction}"
+            f"|novelty={cfg.novelty_weight}|dedup={int(cfg.dedup_enabled)}"
+            f"|descriptor={cfg.dedup_descriptor}|threshold={cfg.dedup_threshold}"
         )
         key = hashlib.md5(raw.encode()).hexdigest()
         return self.cache_root / f"{Path(video).stem}_{key}"
@@ -206,6 +233,12 @@ class LlavaOneVisionCodecPreprocessor:
                 parallel_segments=int(cfg.parallel_segments),
                 threads_per_segment=int(cfg.threads_per_segment),
                 segment_guard_frames=int(cfg.segment_guard_frames),
+                selector_mode=str(cfg.selector_mode),
+                diversity_fraction=float(cfg.diversity_fraction),
+                novelty_weight=float(cfg.novelty_weight),
+                dedup_enabled=bool(cfg.dedup_enabled),
+                dedup_descriptor=str(cfg.dedup_descriptor),
+                dedup_threshold=cfg.dedup_threshold,
             )
             if out_dir.exists():
                 shutil.rmtree(out_dir)
