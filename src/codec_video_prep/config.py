@@ -50,11 +50,13 @@ class PreinferConfig:
     threads_per_segment: int = 4
     segment_guard_frames: int = 30
     selector_mode: str = "topk_2x2_bitcost"
-    diversity_fraction: float = 0.10
+    diversity_fraction: float = 0.30
     novelty_weight: float = 0.5
     dedup_enabled: bool = True
     dedup_descriptor: str = "pooled4"
     dedup_threshold: float | None = None
-    dedup_threshold_mode: str = "absolute"
-    dedup_quantile: float = 0.10
+    dedup_threshold_mode: str = "group_quantile"
+    dedup_quantile: float = 0.15
+    diversity_activation_mode: str = "sample_stride"
+    diversity_min_sample_stride_seconds: float = 5.0
     common_cache_dir: str = ""

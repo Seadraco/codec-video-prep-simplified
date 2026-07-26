@@ -826,6 +826,13 @@ def run_bitcost_readiness(config: BitcostReadinessConfig) -> PipelineResult:
                     dedup_threshold=cfg.dedup_threshold,
                     dedup_threshold_mode=str(cfg.dedup_threshold_mode),
                     dedup_quantile=float(cfg.dedup_quantile),
+                    diversity_activation_mode=str(
+                        cfg.diversity_activation_mode
+                    ),
+                    diversity_min_sample_stride_seconds=float(
+                        cfg.diversity_min_sample_stride_seconds
+                    ),
+                    source_fps=float(meta.fps),
                 )
             )
         else:
@@ -1101,6 +1108,10 @@ def run_bitcost_readiness(config: BitcostReadinessConfig) -> PipelineResult:
         "dedup_threshold": cfg.dedup_threshold,
         "dedup_threshold_mode": str(cfg.dedup_threshold_mode),
         "dedup_quantile": float(cfg.dedup_quantile),
+        "diversity_activation_mode": str(cfg.diversity_activation_mode),
+        "diversity_min_sample_stride_seconds": float(
+            cfg.diversity_min_sample_stride_seconds
+        ),
         "common_cache": {
             "enabled": bool(cfg.common_cache_dir),
             "hit": bool(common_cache_hit),

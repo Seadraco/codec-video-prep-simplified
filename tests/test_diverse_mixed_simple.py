@@ -150,8 +150,11 @@ def test_anchor_only_output_matches_public_selector() -> None:
 def test_config_keeps_public_default_and_validates_new_mode() -> None:
     default = BitcostReadinessConfig(video="in.mp4", out_dir="out").normalized()
     assert default.selector_mode == "topk_2x2_bitcost"
-    assert default.diversity_fraction == 0.10
+    assert default.diversity_fraction == 0.30
     assert default.dedup_descriptor == "pooled4"
+    assert default.dedup_threshold_mode == "group_quantile"
+    assert default.dedup_quantile == 0.15
+    assert default.diversity_activation_mode == "sample_stride"
 
     configured = BitcostReadinessConfig(
         video="in.mp4",
@@ -170,6 +173,16 @@ def test_config_keeps_public_default_and_validates_new_mode() -> None:
     assert configured.dedup_descriptor == "full"
     assert configured.dedup_threshold == 0.05
 
+    stride_configured = BitcostReadinessConfig(
+        video="in.mp4",
+        out_dir="out",
+        selector_mode="diverse_mixed_simple",
+        diversity_activation_mode="SAMPLE_STRIDE",
+        diversity_min_sample_stride_seconds=3.0,
+    ).normalized()
+    assert stride_configured.diversity_activation_mode == "sample_stride"
+    assert stride_configured.diversity_min_sample_stride_seconds == 3.0
+
     with pytest.raises(ValueError):
         BitcostReadinessConfig(
             video="in.mp4",
@@ -186,6 +199,14 @@ def test_config_keeps_public_default_and_validates_new_mode() -> None:
                 selector_mode="diverse_mixed_simple",
                 **{name: value},
             ).normalized()
+
+    with pytest.raises(ValueError):
+        BitcostReadinessConfig(
+            video="in.mp4",
+            out_dir="out",
+            selector_mode="diverse_mixed_simple",
+            diversity_activation_mode="invalid",
+        ).normalized()
 
 
 @pytest.mark.parametrize(
@@ -253,6 +274,98 @@ def test_zero_diversity_without_dedup_matches_public() -> None:
         diversity_fraction=0.0,
         dedup_enabled=False,
     )
+    for baseline_value, candidate_value in zip(baseline[1:], candidate[1:]):
+        np.testing.assert_array_equal(baseline_value, candidate_value)
+
+
+def test_sample_stride_mode_uses_public_path_for_dense_samples() -> None:
+    frame_ids, frames, scores, block_scores = _selector_inputs()
+    common = {
+        "group_idx": 0,
+        "group_frame_ids": list(frame_ids),
+        "group_frames_bgr": [frame.copy() for frame in frames],
+        "group_scores": [score.copy() for score in scores],
+        "images_per_group": 3,
+        "patch": 14,
+        "block_size": 2,
+        "group_block_scores": [score.copy() for score in block_scores],
+        "good_mask": [True] * 4,
+    }
+    baseline = process_group_topk_2x2(**common)
+    candidate = process_group_diverse_mixed_simple(
+        **{
+            **common,
+            "group_frame_ids": list(frame_ids),
+            "group_frames_bgr": [frame.copy() for frame in frames],
+            "group_scores": [score.copy() for score in scores],
+            "group_block_scores": [score.copy() for score in block_scores],
+            "good_mask": [True] * 4,
+        },
+        diversity_activation_mode="sample_stride",
+        diversity_min_sample_stride_seconds=2.5,
+        source_fps=5.0,
+    )
+    selector = candidate[0]["selector"]
+    assert selector["control_path"] == "topk_2x2_bitcost"
+    assert selector["control_reason"] == "sample_stride_below_threshold"
+    assert selector["sample_stride_frames"] == 10.0
+    assert selector["diversity_active"] is False
+    for baseline_value, candidate_value in zip(baseline[1:], candidate[1:]):
+        np.testing.assert_array_equal(baseline_value, candidate_value)
+
+
+def test_sample_stride_mode_matches_always_for_sparse_samples() -> None:
+    _, frames, scores, block_scores = _selector_inputs()
+    frame_ids = [0, 200, 400, 600]
+
+    def run(mode: str):
+        return process_group_diverse_mixed_simple(
+            group_idx=0,
+            group_frame_ids=list(frame_ids),
+            group_frames_bgr=[frame.copy() for frame in frames],
+            group_scores=[score.copy() for score in scores],
+            images_per_group=3,
+            patch=14,
+            block_size=2,
+            group_block_scores=[score.copy() for score in block_scores],
+            good_mask=[True] * 4,
+            diversity_activation_mode=mode,
+            diversity_min_sample_stride_seconds=2.5,
+            source_fps=20.0,
+        )
+
+    baseline = run("always")
+    candidate = run("sample_stride")
+    selector = candidate[0]["selector"]
+    assert selector["sample_stride_frames"] == 200.0
+    assert selector["diversity_active"] is True
+    for baseline_value, candidate_value in zip(baseline[1:], candidate[1:]):
+        np.testing.assert_array_equal(baseline_value, candidate_value)
+
+
+def test_sample_stride_mode_safely_uses_public_path_without_fps() -> None:
+    frame_ids, frames, scores, block_scores = _selector_inputs()
+    common = {
+        "group_idx": 0,
+        "group_frame_ids": list(frame_ids),
+        "group_frames_bgr": [frame.copy() for frame in frames],
+        "group_scores": [score.copy() for score in scores],
+        "images_per_group": 3,
+        "patch": 14,
+        "block_size": 2,
+        "group_block_scores": [score.copy() for score in block_scores],
+        "good_mask": [True] * 4,
+    }
+    baseline = process_group_topk_2x2(**common)
+    candidate = process_group_diverse_mixed_simple(
+        **common,
+        diversity_activation_mode="sample_stride",
+        diversity_min_sample_stride_seconds=0.0,
+        source_fps=0.0,
+    )
+    selector = candidate[0]["selector"]
+    assert selector["control_path"] == "topk_2x2_bitcost"
+    assert selector["control_reason"] == "missing_source_fps"
     for baseline_value, candidate_value in zip(baseline[1:], candidate[1:]):
         np.testing.assert_array_equal(baseline_value, candidate_value)
 

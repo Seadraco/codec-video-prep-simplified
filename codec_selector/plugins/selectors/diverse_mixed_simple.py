@@ -194,6 +194,9 @@ def process_group_diverse_mixed_simple(
     dedup_threshold: Optional[float] = None,
     dedup_threshold_mode: str = "absolute",
     dedup_quantile: float = 0.10,
+    diversity_activation_mode: str = "always",
+    diversity_min_sample_stride_seconds: float = 5.0,
+    source_fps: float = 0.0,
 ) -> Tuple[Dict[str, Any], np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     started = time.perf_counter()
     p = int(patch)
@@ -205,6 +208,11 @@ def process_group_diverse_mixed_simple(
     dedup_descriptor = str(dedup_descriptor).lower().strip()
     dedup_threshold_mode = str(dedup_threshold_mode).lower().strip()
     dedup_quantile = float(dedup_quantile)
+    diversity_activation_mode = str(diversity_activation_mode).lower().strip()
+    diversity_min_sample_stride_seconds = float(
+        diversity_min_sample_stride_seconds
+    )
+    source_fps = float(source_fps)
     if not 0.0 <= diversity_fraction <= 1.0:
         raise ValueError("diversity_fraction must be between 0 and 1")
     if not 0.0 <= novelty_weight <= 1.0:
@@ -217,6 +225,14 @@ def process_group_diverse_mixed_simple(
         )
     if not 0.0 <= dedup_quantile <= 1.0:
         raise ValueError("dedup_quantile must be between 0 and 1")
+    if diversity_activation_mode not in {"always", "sample_stride"}:
+        raise ValueError(
+            f"unsupported diversity activation mode: {diversity_activation_mode}"
+        )
+    if diversity_min_sample_stride_seconds < 0.0:
+        raise ValueError(
+            "diversity_min_sample_stride_seconds must be >= 0"
+        )
     threshold = (
         float(DEFAULT_DEDUP_THRESHOLDS[dedup_descriptor])
         if dedup_threshold is None
@@ -224,7 +240,32 @@ def process_group_diverse_mixed_simple(
     )
     if threshold < 0.0:
         raise ValueError("dedup_threshold must be >= 0")
-    if diversity_fraction == 0.0 and not dedup_enabled:
+    frame_ids_array = np.asarray(group_frame_ids, dtype=np.float64)
+    frame_stride_values = (
+        np.abs(np.diff(frame_ids_array))
+        if frame_ids_array.size > 1
+        else np.empty((0,), dtype=np.float64)
+    )
+    positive_frame_strides = frame_stride_values[frame_stride_values > 0.0]
+    sample_stride_frames = (
+        float(np.median(positive_frame_strides))
+        if positive_frame_strides.size
+        else 0.0
+    )
+    sample_stride_seconds = (
+        float(sample_stride_frames / source_fps)
+        if source_fps > 0.0
+        else 0.0
+    )
+    diversity_active = (
+        diversity_activation_mode == "always"
+        or (
+            source_fps > 0.0
+            and sample_stride_seconds
+            >= diversity_min_sample_stride_seconds
+        )
+    )
+    if (diversity_fraction == 0.0 and not dedup_enabled) or not diversity_active:
         from codec_selector.plugins.selectors.topk_2x2_bitcost import (
             process_group_topk_2x2,
         )
@@ -254,6 +295,27 @@ def process_group_diverse_mixed_simple(
             "dedup_threshold": float(threshold),
             "dedup_threshold_mode": str(dedup_threshold_mode),
             "dedup_quantile": float(dedup_quantile),
+            "diversity_activation_mode": str(diversity_activation_mode),
+            "diversity_min_sample_stride_seconds": float(
+                diversity_min_sample_stride_seconds
+            ),
+            "sample_stride_frames": float(sample_stride_frames),
+            "sample_stride_seconds": float(sample_stride_seconds),
+            "source_fps": float(source_fps),
+            "diversity_active": bool(diversity_active),
+            "control_reason": (
+                "missing_source_fps"
+                if (
+                    not diversity_active
+                    and diversity_activation_mode == "sample_stride"
+                    and source_fps <= 0.0
+                )
+                else (
+                    "sample_stride_below_threshold"
+                    if not diversity_active
+                    else "explicit_public_control"
+                )
+            ),
         }
         return result
     h1, w1 = group_frames_bgr[0].shape[:2]
@@ -345,6 +407,14 @@ def process_group_diverse_mixed_simple(
         "dedup_threshold_configured": float(threshold),
         "dedup_threshold_mode": str(dedup_threshold_mode),
         "dedup_quantile": float(dedup_quantile),
+        "diversity_activation_mode": str(diversity_activation_mode),
+        "diversity_min_sample_stride_seconds": float(
+            diversity_min_sample_stride_seconds
+        ),
+        "sample_stride_frames": float(sample_stride_frames),
+        "sample_stride_seconds": float(sample_stride_seconds),
+        "source_fps": float(source_fps),
+        "diversity_active": bool(diversity_active),
         "dedup_threshold_fallback": False,
         "candidate_blocks": 0,
         "target_blocks": 0,
