@@ -1,4 +1,4 @@
-# codec-video-prep-simplified (v0.2.5.post2)
+# codec-video-prep-simplified (v0.2.5.post3)
 
 Codec-aware video preprocessing for training and inference. Extracts codec-level bitcost information from **H.264 / HEVC / VP9** videos and turns them into patch-canvases ready for downstream vision models.
 
@@ -15,7 +15,7 @@ selector explicitly:
 
 ```bash
 export CODEC_SELECTOR_MODE=diverse_mixed_simple
-export CODEC_DIVERSITY_FRACTION=0.25
+export CODEC_DIVERSITY_FRACTION=0.10
 export CODEC_NOVELTY_WEIGHT=0.5
 export CODEC_DEDUP_ENABLED=1
 export CODEC_DEDUP_DESCRIPTOR=pooled4
@@ -37,18 +37,24 @@ codec-video-prep \
   --video /path/to/video.mp4 \
   --out_dir ./preinfer_out \
   --selector_mode diverse_mixed_simple \
-  --diversity_fraction 0.25 \
+  --diversity_fraction 0.10 \
   --novelty_weight 0.5 \
   --dedup_enabled \
   --dedup_descriptor pooled4
 ```
 
-The selector reserves 75% of the non-Anchor Block budget for public bit-cost
-ranking and 25% for a fixed diversity ranking. Diversity combines Anchor-relative
+The selector reserves 90% of the non-Anchor Block budget for public bit-cost
+ranking and 10% for a fixed diversity ranking. Diversity combines Anchor-relative
 appearance novelty and edge strength with equal weights. Adjacent sampled frames
 are deduplicated only at the same spatial Block position. Rejected candidates are
 backfilled by bit-cost order, so the number of Canvases, patches, and visual tokens
 does not change.
+
+The `0.10` default is the best observed cross-benchmark profile from a staged
+RapidVideoQA-200 and TempCompass-MC ablation. It improved both benchmark point
+estimates, but neither paired gain was statistically significant. Keep the
+public selector as the production control and treat this profile as a research
+candidate. See [the experiment report](docs/simplified_selector_tuning_20260726_zh.md).
 
 | Mode | Behavior |
 |---|---|
@@ -60,7 +66,7 @@ The research selector exposes only five independent controls:
 
 | Parameter | Default | Meaning |
 |---|---:|---|
-| `diversity_fraction` | `0.25` | Non-Anchor budget selected by diversity; bit-cost receives the remainder |
+| `diversity_fraction` | `0.10` | Non-Anchor budget selected by diversity; bit-cost receives the remainder |
 | `novelty_weight` | `0.5` | Novelty weight inside diversity; Edge receives the remainder |
 | `dedup_enabled` | `true` | Enable adjacent sampled-frame, same-position deduplication |
 | `dedup_descriptor` | `pooled4` | Dedup descriptor, `pooled4` or `full` |
@@ -85,7 +91,7 @@ not combined with `diverse_mixed_simple`, keeping the research change isolated.
 
 ```bash
 python -m pip uninstall -y codec-video-prep codec-video-prep-legacy-exact
-python -m pip install /path/to/codec_video_prep-0.2.5.post2-*.whl
+python -m pip install /path/to/codec_video_prep-0.2.5.post3-*.whl
 ```
 
 Verify the installation:
@@ -101,10 +107,10 @@ so the official model wrapper does not need a source-code change:
 
 ```bash
 python -m pip uninstall -y codec-video-prep codec-video-prep-legacy-exact
-python -m pip install /path/to/codec_video_prep-0.2.5.post2-*.whl
+python -m pip install /path/to/codec_video_prep-0.2.5.post3-*.whl
 
 export CODEC_SELECTOR_MODE=diverse_mixed_simple
-export CODEC_DIVERSITY_FRACTION=0.25
+export CODEC_DIVERSITY_FRACTION=0.10
 export CODEC_NOVELTY_WEIGHT=0.5
 export CODEC_DEDUP_ENABLED=1
 export CODEC_DEDUP_DESCRIPTOR=pooled4
@@ -219,7 +225,7 @@ codec-video-prep \
 | Parameter | Default | Description |
 |---|---|---|
 | `--selector_mode` | `topk_2x2_bitcost` | Public baseline or `diverse_mixed_simple` |
-| `--diversity_fraction` | `0.25` | Diversity share of the non-Anchor Block budget |
+| `--diversity_fraction` | `0.10` | Diversity share of the non-Anchor Block budget |
 | `--novelty_weight` | `0.5` | Novelty share of the Diversity score |
 | `--dedup_enabled` / `--no-dedup_enabled` | `True` | Enable adjacent same-position deduplication |
 | `--dedup_descriptor` | `pooled4` | `pooled4` or native-resolution `full`; used only by the research selector |

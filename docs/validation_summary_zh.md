@@ -1,4 +1,8 @@
-# 精简 Block 选择器验证摘要
+# 精简 Block 选择器结构验证摘要
+
+本页记录早期 `0.2.5.post1` 的 75%/25% 实现正确性与压力测试，
+不是当前推荐参数。当前跨 Benchmark 参数实验见
+[精简选择器调优报告](simplified_selector_tuning_20260726_zh.md)。
 
 ## 基线
 
@@ -12,7 +16,7 @@
 
 `pytest` 覆盖以下内容：
 
-- 75% bit-cost 与 25% diversity 的固定预算；
+- 75% bit-cost 与 25% diversity 的早期固定预算；
 - `pooled4` 与 `full` 两种去重描述子；
 - 相邻帧同位置 Block 去重和预算不足回填；
 - Anchor-only 输出与官方选择器逐数组一致；

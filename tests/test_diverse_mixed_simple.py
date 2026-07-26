@@ -150,6 +150,7 @@ def test_anchor_only_output_matches_public_selector() -> None:
 def test_config_keeps_public_default_and_validates_new_mode() -> None:
     default = BitcostReadinessConfig(video="in.mp4", out_dir="out").normalized()
     assert default.selector_mode == "topk_2x2_bitcost"
+    assert default.diversity_fraction == 0.10
     assert default.dedup_descriptor == "pooled4"
 
     configured = BitcostReadinessConfig(

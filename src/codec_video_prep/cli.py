@@ -83,7 +83,7 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--selector_mode", default="topk_2x2_bitcost",
                     choices=["topk_2x2_bitcost", "diverse_mixed_simple"],
                     help="Block selector")
-    ap.add_argument("--diversity_fraction", type=float, default=0.25,
+    ap.add_argument("--diversity_fraction", type=float, default=0.10,
                     help="Fraction of non-Anchor Blocks selected by diversity ranking")
     ap.add_argument("--novelty_weight", type=float, default=0.5,
                     help="Novelty weight in diversity ranking; Edge uses 1-weight")

@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.5.post3
+
+- Set the opt-in research selector's validated default mix to 90% public
+  bit-cost and 10% diversity.
+- Keep the public `topk_2x2_bitcost` selector as the package default.
+- Add exact paired McNemar statistics and offline-cache metadata discovery to
+  the experiment summarizer.
+- Make `codec-video-prep-doctor` validate the actual `slice` thread default.
+- Document the RapidVideoQA-200 and TempCompass-MC staged ablations, including
+  the non-significant uncertainty of the observed accuracy gain.
+
 ## 0.2.5.post2
 
 - Expose the five simplified selector controls through Python, CLI, and

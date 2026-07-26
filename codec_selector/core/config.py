@@ -124,7 +124,7 @@ class BitcostReadinessConfig:
 
     extra: Dict[str, Any] = field(default_factory=dict)
     selector_mode: str = "topk_2x2_bitcost"
-    diversity_fraction: float = 0.25
+    diversity_fraction: float = 0.10
     novelty_weight: float = 0.5
     dedup_enabled: bool = True
     dedup_descriptor: str = "pooled4"

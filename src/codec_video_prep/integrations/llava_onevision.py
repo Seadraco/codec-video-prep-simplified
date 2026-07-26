@@ -63,7 +63,7 @@ class LlavaCodecPreprocessConfig:
     threads_per_segment: int = 4
     segment_guard_frames: int = 30
     selector_mode: str = "topk_2x2_bitcost"
-    diversity_fraction: float = 0.25
+    diversity_fraction: float = 0.10
     novelty_weight: float = 0.5
     dedup_enabled: bool = True
     dedup_descriptor: str = "pooled4"
@@ -106,7 +106,7 @@ class LlavaCodecPreprocessConfig:
             threads_per_segment=int(kwargs.get("codec_threads_per_segment", 4)),
             segment_guard_frames=int(kwargs.get("codec_segment_guard_frames", 30)),
             selector_mode=str(kwargs.get("codec_selector_mode", "topk_2x2_bitcost")),
-            diversity_fraction=float(kwargs.get("codec_diversity_fraction", 0.25)),
+            diversity_fraction=float(kwargs.get("codec_diversity_fraction", 0.10)),
             novelty_weight=float(kwargs.get("codec_novelty_weight", 0.5)),
             dedup_enabled=_as_bool(kwargs.get("codec_dedup_enabled", True)),
             dedup_descriptor=str(kwargs.get("codec_dedup_descriptor", "pooled4")),

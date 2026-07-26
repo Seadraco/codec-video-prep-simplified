@@ -9,7 +9,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "codec-video-prep"
-version = "0.2.5.post2"
+version = "0.2.5.post3"
 description = "Codec-aware video preprocessing with simplified diverse block selection"
 readme = "README.md"
 requires-python = ">=3.10"

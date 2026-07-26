@@ -52,7 +52,7 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--event_aggregation_bins", default=4, type=int)
     ap.add_argument("--event_aggregation_min_blocks", default=8, type=int)
     ap.add_argument("--selector_mode", default="topk_2x2_bitcost", choices=["topk_2x2_bitcost", "diverse_mixed_simple"])
-    ap.add_argument("--diversity_fraction", default=0.25, type=float)
+    ap.add_argument("--diversity_fraction", default=0.10, type=float)
     ap.add_argument("--novelty_weight", default=0.5, type=float)
     ap.add_argument("--dedup_enabled", default=True, action=argparse.BooleanOptionalAction)
     ap.add_argument("--dedup_descriptor", default="pooled4", choices=["pooled4", "full"])

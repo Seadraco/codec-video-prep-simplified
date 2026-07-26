@@ -37,6 +37,7 @@ def parse_sample(row: dict[str, Any], source: Path) -> dict[str, Any]:
     if isinstance(row.get("videomme_perception_score"), dict):
         payload = row["videomme_perception_score"]
         return {
+            "key": str(payload.get("question_id", row.get("doc_id", "unknown"))),
             "score": float(payload.get("score", 0.0)),
             "duration": str(payload.get("duration", "unknown")),
             "question_type": str(payload.get("task_category", "unknown")),
@@ -45,6 +46,7 @@ def parse_sample(row: dict[str, Any], source: Path) -> dict[str, Any]:
     if isinstance(row.get("avg_accuracy"), dict):
         payload = row["avg_accuracy"]
         return {
+            "key": f"{payload.get('video_id', 'unknown')}::{payload.get('question', row.get('doc_id', 'unknown'))}",
             "score": float(payload.get("rating", payload.get("match_success", 0.0))),
             "duration": "short",
             "question_type": str(payload.get("dim", "unknown")),
@@ -70,6 +72,37 @@ def grouped_scores(
     for row in rows:
         groups[str(row[field])].append(row)
     return {key: score_summary(value) for key, value in sorted(groups.items())}
+
+
+def exact_mcnemar_p(gained: int, lost: int) -> float:
+    discordant = int(gained + lost)
+    if discordant == 0:
+        return 1.0
+    tail = min(int(gained), int(lost))
+    probability = sum(math.comb(discordant, value) for value in range(tail + 1))
+    probability /= float(2**discordant)
+    return min(1.0, 2.0 * probability)
+
+
+def paired_summary(
+    baseline_rows: list[dict[str, Any]],
+    candidate_rows: list[dict[str, Any]],
+) -> dict[str, Any]:
+    baseline = {str(row["key"]): int(row["score"] > 0.5) for row in baseline_rows}
+    candidate = {str(row["key"]): int(row["score"] > 0.5) for row in candidate_rows}
+    if set(baseline) != set(candidate):
+        raise ValueError("paired runs do not contain the same question keys")
+    gained = sum(baseline[key] == 0 and candidate[key] == 1 for key in baseline)
+    lost = sum(baseline[key] == 1 and candidate[key] == 0 for key in baseline)
+    return {
+        "n": len(baseline),
+        "gained": int(gained),
+        "lost": int(lost),
+        "unchanged": int(len(baseline) - gained - lost),
+        "net_correct": int(gained - lost),
+        "delta_accuracy": float(gained - lost) / float(len(baseline)),
+        "exact_mcnemar_p": exact_mcnemar_p(gained, lost),
+    }
 
 
 def load_samples(run_dir: Path) -> list[dict[str, Any]]:
@@ -106,7 +139,15 @@ def load_preprocess(run_dir: Path) -> dict[str, Any]:
 
 def load_selector(run_dir: Path) -> dict[str, Any] | None:
     summaries: list[dict[str, Any]] = []
-    for path in sorted((run_dir / "online_codec_cache").glob("*/meta.json")):
+    meta_paths: dict[Path, Path] = {}
+    for cache_name in ("online_codec_cache", "generated"):
+        for path in sorted((run_dir / cache_name).glob("*/meta.json")):
+            try:
+                resolved = path.resolve(strict=True)
+            except OSError:
+                continue
+            meta_paths[resolved] = path
+    for path in meta_paths.values():
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
@@ -232,6 +273,7 @@ def summarize_run(label: str, run_dir: Path) -> dict[str, Any]:
     return {
         "label": label,
         "path": str(run_dir.resolve()),
+        "_rows": rows,
         "scores": {
             "overall": score_summary(rows),
             "by_duration": grouped_scores(rows, "duration"),
@@ -267,6 +309,23 @@ def markdown(report: dict[str, Any]) -> str:
                 long=accuracy(scores["by_duration"].get("long")),
             )
         )
+    if report.get("paired"):
+        lines.extend(
+            [
+                "",
+                "## Paired comparison",
+                "",
+                "| Candidate vs baseline | Fixed | Regressed | Net | Delta | Exact p |",
+                "|---|---:|---:|---:|---:|---:|",
+            ]
+        )
+        for label, paired in report["paired"].items():
+            lines.append(
+                f"| {label} | {paired['gained']} | {paired['lost']} "
+                f"| {paired['net_correct']:+d} "
+                f"| {100.0 * paired['delta_accuracy']:+.2f} pp "
+                f"| {paired['exact_mcnemar_p']:.4f} |"
+            )
     lines.extend(
         [
             "",
@@ -313,7 +372,17 @@ def main() -> None:
             raise ValueError(f"--run must be LABEL=PATH, got {spec!r}")
         label, raw_path = spec.split("=", 1)
         runs.append(summarize_run(label, Path(raw_path)))
-    report = {"runs": runs}
+    baseline = runs[0]
+    paired = {
+        f"{run['label']} vs {baseline['label']}": paired_summary(
+            baseline["_rows"],
+            run["_rows"],
+        )
+        for run in runs[1:]
+    }
+    for run in runs:
+        run.pop("_rows")
+    report = {"runs": runs, "paired": paired}
     args.output_dir.mkdir(parents=True, exist_ok=True)
     (args.output_dir / "summary.json").write_text(
         json.dumps(report, indent=2, ensure_ascii=False) + "\n",
