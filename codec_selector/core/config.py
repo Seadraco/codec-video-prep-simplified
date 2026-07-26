@@ -129,6 +129,9 @@ class BitcostReadinessConfig:
     dedup_enabled: bool = True
     dedup_descriptor: str = "pooled4"
     dedup_threshold: Optional[float] = None
+    dedup_threshold_mode: str = "absolute"
+    dedup_quantile: float = 0.10
+    common_cache_dir: str = ""
 
     def normalized(self) -> "BitcostReadinessConfig":
         self.frame_sampling_mode = str(self.frame_sampling_mode).lower().strip()
@@ -162,6 +165,9 @@ class BitcostReadinessConfig:
         self.novelty_weight = float(self.novelty_weight)
         self.dedup_enabled = bool(self.dedup_enabled)
         self.dedup_descriptor = str(self.dedup_descriptor).lower().strip()
+        self.dedup_threshold_mode = str(self.dedup_threshold_mode).lower().strip()
+        self.dedup_quantile = float(self.dedup_quantile)
+        self.common_cache_dir = str(self.common_cache_dir).strip()
         if self.dedup_threshold is not None:
             self.dedup_threshold = float(self.dedup_threshold)
         if self.selector_mode not in {"topk_2x2_bitcost", "diverse_mixed_simple"}:
@@ -174,6 +180,12 @@ class BitcostReadinessConfig:
             raise ValueError(f"unsupported dedup_descriptor: {self.dedup_descriptor}")
         if self.dedup_threshold is not None and self.dedup_threshold < 0.0:
             raise ValueError("dedup_threshold must be >= 0")
+        if self.dedup_threshold_mode not in {"absolute", "group_quantile"}:
+            raise ValueError(
+                f"unsupported dedup_threshold_mode: {self.dedup_threshold_mode}"
+            )
+        if not 0.0 <= self.dedup_quantile <= 1.0:
+            raise ValueError("dedup_quantile must be between 0 and 1")
         if self.selector_mode == "diverse_mixed_simple" and self.event_aggregation:
             raise ValueError("event_aggregation is only supported by selector_mode=topk_2x2_bitcost")
         self.patch = int(max(1, int(self.patch)))

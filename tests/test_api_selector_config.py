@@ -24,6 +24,9 @@ def test_environment_selects_research_mode(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("CODEC_DEDUP_ENABLED", "0")
     monkeypatch.setenv("CODEC_DEDUP_DESCRIPTOR", "full")
     monkeypatch.setenv("CODEC_DEDUP_THRESHOLD", "0.05")
+    monkeypatch.setenv("CODEC_DEDUP_THRESHOLD_MODE", "group_quantile")
+    monkeypatch.setenv("CODEC_DEDUP_QUANTILE", "0.2")
+    monkeypatch.setenv("CODEC_COMMON_CACHE_DIR", "/tmp/common-codec-cache")
     api.run_preinfer_config(PreinferConfig(video="input.mp4", out_dir=str(tmp_path)))
 
     config = captured["config"]
@@ -33,6 +36,9 @@ def test_environment_selects_research_mode(monkeypatch, tmp_path) -> None:
     assert config.dedup_enabled is False
     assert config.dedup_descriptor == "full"
     assert config.dedup_threshold == 0.05
+    assert config.dedup_threshold_mode == "group_quantile"
+    assert config.dedup_quantile == 0.2
+    assert config.common_cache_dir == "/tmp/common-codec-cache"
 
 
 def test_explicit_values_work_without_environment(monkeypatch, tmp_path) -> None:

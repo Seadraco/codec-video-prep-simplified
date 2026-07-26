@@ -291,3 +291,36 @@ def test_default_and_explicit_dedup_thresholds(
     )[0]["selector"]
     assert default["dedup_threshold"] == expected
     assert explicit["dedup_threshold"] == 0.123
+
+
+def test_group_quantile_resolves_from_local_distribution() -> None:
+    frame_ids, frames, scores, block_scores = _selector_inputs()
+    frames = [
+        _frame(shift=0),
+        _frame(shift=2),
+        _frame(shift=20),
+        _frame(shift=80),
+    ]
+    selector = process_group_diverse_mixed_simple(
+        group_idx=0,
+        group_frame_ids=list(frame_ids),
+        group_frames_bgr=[frame.copy() for frame in frames],
+        group_scores=[score.copy() for score in scores],
+        images_per_group=3,
+        patch=14,
+        block_size=2,
+        group_block_scores=[score.copy() for score in block_scores],
+        good_mask=[True] * 4,
+        dedup_threshold_mode="group_quantile",
+        dedup_quantile=0.20,
+    )[0]["selector"]
+    assert selector["dedup_threshold_mode"] == "group_quantile"
+    assert selector["dedup_quantile"] == 0.20
+    assert selector["dedup_threshold_fallback"] is False
+    assert selector["dedup_threshold"] == pytest.approx(
+        selector["adjacent_mad_quantiles"]["p20"]
+    )
+    assert selector["adjacent_mad_fraction_le_threshold"] == pytest.approx(
+        0.20,
+        abs=0.05,
+    )

@@ -99,6 +99,9 @@ def run_preinfer(
     dedup_enabled: bool = True,
     dedup_descriptor: str = "pooled4",
     dedup_threshold: float | None = None,
+    dedup_threshold_mode: str = "absolute",
+    dedup_quantile: float = 0.10,
+    common_cache_dir: str = "",
 ) -> PreinferResult:
     """Run the optimized H.264/HEVC bitcost readiness preprocessing path."""
     config = PreinferConfig(
@@ -144,6 +147,9 @@ def run_preinfer(
         dedup_enabled=dedup_enabled,
         dedup_descriptor=dedup_descriptor,
         dedup_threshold=dedup_threshold,
+        dedup_threshold_mode=dedup_threshold_mode,
+        dedup_quantile=dedup_quantile,
+        common_cache_dir=common_cache_dir,
         parallel_decode_cv_reader=parallel_decode_cv_reader,
         decode_backend=decode_backend,
         parallel_segments=parallel_segments,
@@ -166,6 +172,15 @@ def run_preinfer_config(config: PreinferConfig) -> PreinferResult:
     dedup_descriptor = os.environ.get("CODEC_DEDUP_DESCRIPTOR", str(config.dedup_descriptor))
     dedup_threshold = _environment_optional_float(
         "CODEC_DEDUP_THRESHOLD", config.dedup_threshold
+    )
+    dedup_threshold_mode = os.environ.get(
+        "CODEC_DEDUP_THRESHOLD_MODE", str(config.dedup_threshold_mode)
+    )
+    dedup_quantile = float(
+        os.environ.get("CODEC_DEDUP_QUANTILE", str(config.dedup_quantile))
+    )
+    common_cache_dir = os.environ.get(
+        "CODEC_COMMON_CACHE_DIR", str(config.common_cache_dir)
     )
     cfg = BitcostReadinessConfig(
         video=str(config.video),
@@ -214,6 +229,9 @@ def run_preinfer_config(config: PreinferConfig) -> PreinferResult:
         dedup_enabled=bool(dedup_enabled),
         dedup_descriptor=str(dedup_descriptor),
         dedup_threshold=dedup_threshold,
+        dedup_threshold_mode=str(dedup_threshold_mode),
+        dedup_quantile=float(dedup_quantile),
+        common_cache_dir=str(common_cache_dir),
         parallel_decode_cv_reader=bool(config.parallel_decode_cv_reader),
         decode_backend=str(config.decode_backend),
         parallel_segments=int(config.parallel_segments),

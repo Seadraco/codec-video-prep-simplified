@@ -192,6 +192,8 @@ def process_group_diverse_mixed_simple(
     dedup_enabled: bool = True,
     dedup_descriptor: str = "pooled4",
     dedup_threshold: Optional[float] = None,
+    dedup_threshold_mode: str = "absolute",
+    dedup_quantile: float = 0.10,
 ) -> Tuple[Dict[str, Any], np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     started = time.perf_counter()
     p = int(patch)
@@ -201,12 +203,20 @@ def process_group_diverse_mixed_simple(
     novelty_weight = float(novelty_weight)
     dedup_enabled = bool(dedup_enabled)
     dedup_descriptor = str(dedup_descriptor).lower().strip()
+    dedup_threshold_mode = str(dedup_threshold_mode).lower().strip()
+    dedup_quantile = float(dedup_quantile)
     if not 0.0 <= diversity_fraction <= 1.0:
         raise ValueError("diversity_fraction must be between 0 and 1")
     if not 0.0 <= novelty_weight <= 1.0:
         raise ValueError("novelty_weight must be between 0 and 1")
     if dedup_descriptor not in DEFAULT_DEDUP_THRESHOLDS:
         raise ValueError(f"unsupported dedup descriptor: {dedup_descriptor}")
+    if dedup_threshold_mode not in {"absolute", "group_quantile"}:
+        raise ValueError(
+            f"unsupported dedup threshold mode: {dedup_threshold_mode}"
+        )
+    if not 0.0 <= dedup_quantile <= 1.0:
+        raise ValueError("dedup_quantile must be between 0 and 1")
     threshold = (
         float(DEFAULT_DEDUP_THRESHOLDS[dedup_descriptor])
         if dedup_threshold is None
@@ -242,6 +252,8 @@ def process_group_diverse_mixed_simple(
             "dedup_enabled": False,
             "dedup_descriptor": str(dedup_descriptor),
             "dedup_threshold": float(threshold),
+            "dedup_threshold_mode": str(dedup_threshold_mode),
+            "dedup_quantile": float(dedup_quantile),
         }
         return result
     h1, w1 = group_frames_bgr[0].shape[:2]
@@ -330,6 +342,10 @@ def process_group_diverse_mixed_simple(
         "dedup_enabled": bool(dedup_enabled),
         "dedup_descriptor": str(dedup_descriptor),
         "dedup_threshold": float(threshold),
+        "dedup_threshold_configured": float(threshold),
+        "dedup_threshold_mode": str(dedup_threshold_mode),
+        "dedup_quantile": float(dedup_quantile),
+        "dedup_threshold_fallback": False,
         "candidate_blocks": 0,
         "target_blocks": 0,
         "bitcost_selected": 0,
@@ -396,6 +412,10 @@ def process_group_diverse_mixed_simple(
                 np.float32,
                 copy=False,
             )
+            if dedup_threshold_mode == "group_quantile":
+                threshold = float(
+                    np.quantile(valid_adjacent_mad, float(dedup_quantile))
+                )
             quantile_values = np.quantile(
                 valid_adjacent_mad,
                 (0.05, 0.10, 0.20, 0.50, 0.80, 0.90, 0.95),
@@ -418,7 +438,10 @@ def process_group_diverse_mixed_simple(
                 "adjacent_mad_fraction_le_threshold": float(
                     np.mean(valid_adjacent_mad <= float(threshold))
                 ),
+                "dedup_threshold": float(threshold),
             })
+        elif dedup_threshold_mode == "group_quantile":
+            selector_debug["dedup_threshold_fallback"] = True
 
         selection_started = time.perf_counter()
         target_blocks = min(int(block_budget), int(bitcost_scores.size))

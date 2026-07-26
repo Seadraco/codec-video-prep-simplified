@@ -55,3 +55,6 @@ class PreinferConfig:
     dedup_enabled: bool = True
     dedup_descriptor: str = "pooled4"
     dedup_threshold: float | None = None
+    dedup_threshold_mode: str = "absolute"
+    dedup_quantile: float = 0.10
+    common_cache_dir: str = ""

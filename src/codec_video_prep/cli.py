@@ -95,6 +95,13 @@ def build_parser() -> argparse.ArgumentParser:
                     help="Adjacent-block descriptor; full uses the native block resolution")
     ap.add_argument("--dedup_threshold", type=float, default=None,
                     help="Adjacent MAD threshold; defaults depend on descriptor mode")
+    ap.add_argument("--dedup_threshold_mode", default="absolute",
+                    choices=["absolute", "group_quantile"],
+                    help="Use a fixed MAD threshold or a per-group MAD quantile")
+    ap.add_argument("--dedup_quantile", type=float, default=0.10,
+                    help="Per-group adjacent MAD quantile used by group_quantile mode")
+    ap.add_argument("--common_cache_dir", default="",
+                    help="Optional selector-independent decoded-frame/BitCost cache")
     ap.add_argument("--parallel_decode_cv_reader", action="store_true",
                     help="Parallelize decode and cv_reader")
     ap.add_argument("--decode_backend", default="cv_reader_pixels",
